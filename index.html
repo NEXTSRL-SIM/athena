@@ -3,7 +3,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>ATHENA — parlare a voce</title>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
 <style>
   /* ═══════════════════════════════════════════════════════════════════════════
      ATHENA — il guscio: struttura e stile, nient'altro.
@@ -12,11 +12,20 @@
      vestire le battute vengono dalla pagina MIND e non sono stati toccati.
      ═══════════════════════════════════════════════════════════════════════════ */
   :root{
+    /* dice al sistema operativo che la pagina e' scura: sistema da sola i
+       controlli che disegna lui (barre di scorrimento comprese) dove non
+       arriva lo stile qui sotto */
+    color-scheme:dark;
     --fondo:#0B0B0C;--fondo2:#131315;--pannello:#1B1B1E;--bordo:#2E2B28;
     --testo:#E8E4DE;--tenue:#A39C93;--fioco:#706A62;
     --blu:#4C8DF6;--luce:#FFFFFF;--attesa:#E8A33D;--ok:#3FAE9B;--rosso:#D4736A;
     --mono:'IBM Plex Mono',ui-monospace,Menlo,monospace;
     --ui:'Archivo',system-ui,-apple-system,Segoe UI,sans-serif;
+    /* la voce di ATHENA: una grottesca tecnica, diversa da quella di Sante
+       anche quando Google Fonts non arriva (vedi il perche' nella consegna) */
+    --claude:'IBM Plex Sans',Arial,Helvetica,sans-serif;
+    /* barre di scorrimento: scure come le superfici, non come il sistema */
+    --scroll-traccia:var(--fondo2);--scroll-cursore:#3A3A3E;--scroll-cursore-sopra:#4C4C54;
   }
   *{box-sizing:border-box}
   html,body{height:100%}
@@ -32,6 +41,20 @@
 
   /* il fuoco da tastiera si deve vedere sempre, su qualunque cosa lo riceva */
   :focus-visible{outline:2px solid var(--blu);outline-offset:2px;border-radius:4px}
+
+  /* ── le barre di scorrimento, nere dappertutto ───────────────────────────
+     La pagina e' nera ma di suo il browser disegna le barre chiare: le
+     riportiamo sul nero ovunque si scorra — chat, vetrina, sessioni, blocchi
+     di codice. scrollbar-color/-width per Firefox, ::-webkit-scrollbar per
+     Chrome/Safari/iPad. Fondo come la superficie, cursore appena piu' chiaro,
+     ancora piu' chiaro sotto il mouse. Sottili apposta, non ingombranti. */
+  html{scrollbar-color:var(--scroll-cursore) var(--scroll-traccia);scrollbar-width:thin}
+  *::-webkit-scrollbar{width:11px;height:11px}
+  *::-webkit-scrollbar-track{background:var(--scroll-traccia)}
+  *::-webkit-scrollbar-thumb{background:var(--scroll-cursore);border-radius:7px;
+    border:2px solid var(--scroll-traccia)}
+  *::-webkit-scrollbar-thumb:hover{background:var(--scroll-cursore-sopra)}
+  *::-webkit-scrollbar-corner{background:var(--scroll-traccia)}
 
   /* ── la fascia della seconda fila ────────────────────────────────────────── */
   /* Quando comanda un'altra finestra questa pagina e' FERMA del tutto. Prima
@@ -207,14 +230,28 @@
   .msg{max-width:min(74ch,100%);overflow-wrap:anywhere}
   .msg.sante{align-self:flex-end;background:var(--pannello);border:1px solid var(--bordo);
     border-radius:14px;padding:11px 14px}
-  .msg.claude{align-self:flex-start;background:none;border:none;padding:0}
+  .msg.claude{align-self:flex-start;background:none;border:none;padding:0;
+    font-family:var(--claude);
+    /* rete di sicurezza indipendente dal font: se anche Google Fonts E i
+       ripieghi di sistema falliscono tutti, la spaziatura resta e le due
+       voci non si confondono lo stesso (provato: senza questa riga, su un
+       sistema senza nessuno dei caratteri nominati le due battute finivano
+       per apparire identiche) */
+    letter-spacing:.012em}
   .msg .quando{font-family:var(--mono);font-size:10px;color:var(--fioco);margin-bottom:4px;
     display:flex;gap:8px;align-items:center}
   .msg pre{background:#0B111C;border:1px solid var(--bordo);border-radius:7px;padding:10px 12px;
     overflow-x:auto;font-family:var(--mono);font-size:12.5px;margin:9px 0}
-  .msg code{font-family:var(--mono);font-size:.92em;background:rgba(255,255,255,.06);
-    padding:1px 5px;border-radius:4px}
-  .msg pre code{background:none;padding:0}
+  .msg code{font-family:var(--mono);font-size:.92em;background:rgba(255,255,255,.07);
+    color:#B9C6D9;padding:1.5px 6px;border-radius:5px}
+  /* dentro il codice in linea: nomi di tabella/funzione (col trattino basso o
+     il punto), numeri, stringhe fra apici — ognuno il suo colore d'accento.
+     Lavorano su testo GIA' schermato da esc() in app.js: sono solo <span>
+     con classi fisse, non introducono mai marcatura dal database. */
+  .msg code .cv-nome{color:#6FA8FF}
+  .msg code .cv-num{color:var(--attesa)}
+  .msg code .cv-str{color:#7FD9B9}
+  .msg pre code{background:none;padding:0;color:inherit}
   .msg table{border-collapse:collapse;margin:9px 0;font-size:13px;display:block;overflow-x:auto}
   .msg th,.msg td{border:1px solid var(--bordo);padding:5px 9px;text-align:left}
   .msg th{background:rgba(255,255,255,.04);font-weight:500}
@@ -621,6 +658,9 @@
      Grafico.avvia(canvas, dati)   costruisce e comincia a disegnare
      Grafico.dati(nuoviDati)       sostituisce i dati senza ripartire da capo
      Grafico.accendi(elenco)       elenco = [{oggetto, azione, sessione}]
+     Grafico.racconto(dato)        dato = {sessioni, diario} — vedi PIU' SOTTO
+     Grafico.scegli(nome)          seleziona (o toglie) un nodo — vedi PIU' SOTTO
+     Grafico.scelto()              la chiave del nodo scelto, o null
      Grafico.forma(nome)           'sparso' | 'tondo' | 'compatto'
      Grafico.ferma()               sospende il disegno (scheda in secondo piano)
      Grafico.riprendi()
@@ -633,19 +673,54 @@
                                    tocca.
      Grafico.voceFine()            torna a riposo, morbido, mai di scatto
 
-   LA COLONNA DELLE DESCRIZIONI (da ingrandito)
+   LA COLONNA DEL RACCONTO (da ingrandito)
    Quando il riquadro del grafico è espanso — cioè quando document.body porta
    la classe "grande" (la stessa che app.js già mette e toglie sul bottone
    "espandi/riduci": nessuna coppia serviva per questo) — Grafico si costruisce
-   da solo, dentro il contenitore del canvas, una colonna a destra con una riga
-   per ogni oggetto acceso ADESSO (chi, che azione, da quando) e la legenda dei
-   colori dei tipi. Le righe si accendono/spengono con le stesse regole delle
-   sfere (stessa dissolvenza morbida). Passare sopra una riga illumina il suo
-   punto nella mappa; passare sopra un punto illumina la sua riga. Da piccolo
-   la colonna non c'è e non ruba spazio.
+   da solo, dentro il contenitore del canvas, una colonna a destra con QUATTRO
+   pezzi, in quest'ordine (Sante l'ha chiesta così, com'era prima):
+
+     1. Sessioni attive    — chi ci lavora ADESSO (nome, compito, da quando)
+     2. Diario di bordo    — le ultime righe, dalla più recente
+     3. Selezionato         — SOLO se un nodo è scelto: nome, tipo, vicini
+                              diretti col tipo di collegamento (punto D)
+     4. Elementi accesi    — una riga per oggetto acceso, come prima
+
+   I pezzi 1 e 2 arrivano da FUORI, con Grafico.racconto({sessioni, diario}):
+     sessioni  quello che restituisce conv_pagina_sessioni così com'è (un
+               oggetto con .sessioni[], o direttamente l'array) — si guarda
+               `sessione` (nome), `stato` ('ingaggiata' = al lavoro), `compito`,
+               `ferma_da_s` (o `vista_at`) per il "da quando"
+     diario    [{at, riga, sessione}, ...] in QUALUNQUE ordine (si riordina
+               qui dal più recente) — questa è la forma vera che restituisce
+               conv_pagina_stato; `riga`/`at` accettano anche gli alias
+               testo/nota e ora/quando, e per chi indica l'autore della riga
+               si accetta anche l'alias `chi`, per tolleranza
+   I pezzi 3 e 4 restano quelli che Grafico sa già da solo (accendi() per il 4,
+   la scelta del punto D per il 3): NESSUN dato in più serve per quelli.
+
+   Le righe si accendono/spengono con le stesse regole delle sfere (stessa
+   dissolvenza morbida) dove si applica (elementi accesi). Passare sopra una
+   riga di elemento illumina il suo punto nella mappa; passare sopra un punto
+   illumina la sua riga. Da piccolo la colonna non c'è e non ruba spazio.
+
+   LA SCELTA DI UN NODO (punto D)
+   Un tocco (mouse O dito: sono Pointer Event, valgono per entrambi) su una
+   sfera che non sia un trascinamento la seleziona: lei e i suoi vicini diretti
+   (un solo arco di distanza) restano in piena luce, gli archi fra loro pure;
+   tutto il resto si SMORZA (mai sparisce). Un secondo tocco sulla stessa sfera,
+   o sul vuoto, torna alla vista intera. Funziona anche a colonna chiusa (un
+   anello bianco segna il nodo scelto); la colonna, quando c'è, aggiunge il
+   nome e l'elenco dei vicini con il tipo di collegamento. Si comanda anche da
+   fuori con Grafico.scegli(nome)/Grafico.scelto() — per esempio dalla colonna
+   stessa, che è quello che fa.
 
    LE REGOLE DEL DISEGNO SONO QUELLE DELLA PAGINA DI PARTENZA, corrette a mano
-   una alla volta: sono ricopiate qui come stanno e non vanno reinventate.
+   una alla volta: sono ricopiate qui come stanno e non vanno reinventate. Le
+   forze, la taglia relativa dai collegamenti, la rotazione oraria, il respiro
+   della voce e l'alone bianco NON si toccano: lo smorzamento della selezione è
+   un fattore che si MOLTIPLICA sull'opacità già calcolata (1 = nessuna
+   selezione, il disegno torna identico a prima), non una regola nuova.
    ========================================================================== */
 
 const Grafico = (function () {
@@ -665,12 +740,22 @@ const Grafico = (function () {
   /* ----------------------------------------------------------------------
      I COLORI
      Il BLU è la famiglia dominante: i tipi NUMEROSI (i workflow prima di
-     tutti) stanno tutti nella famiglia blu, con sfumature diverse fra loro —
-     si riconoscono senza spiccare. I tipi POCHI (sotto SOGLIA_RARO oggetti)
-     restano colorati, ben colorati, per riconoscerli a colpo d'occhio.
-     L'assegnazione (assegnaColori) si ricalcola ad ogni dato nuovo guardando
-     i conteggi VERI del dato arrivato — non è un elenco di lettere scritto a
-     mano, quindi regge qualunque lettera compaia in futuro.
+     tutti) stanno tutti nella famiglia blu. I tipi POCHI (sotto SOGLIA_RARO
+     oggetti) restano colorati, ben colorati, per riconoscerli a colpo
+     d'occhio. Questo NON è cambiato.
+
+     Quello che Sante ha chiesto in più: dentro la sua famiglia, OGNI NODO ha
+     un colore SUO — non più un unico blu ripetuto su centinaia di sfere. Il
+     colore si deriva da una dispersione (hashNome) del NOME mostrato: stesso
+     nome, stesso colore, sempre — nessun caso, nessuna dipendenza dal seme
+     della disposizione (quello serve solo alle posizioni, mescolarlo coi
+     colori avrebbe spostato i nodi). Ogni tipo tiene comunque un'ANCORA — una
+     tonalità/saturazione/luce di base, presa dalle stesse tavolozze di prima
+     — e il nodo si sposta di poco intorno a quell'ancora (dHue/dSat/dLum): i
+     tipi numerosi restano dentro il ventaglio del blu (l'ancora è già blu, lo
+     scarto è piccolo), i tipi pochi restano il loro colore acceso e distinto
+     dagli altri pochi. La legenda mostra l'ANCORA pura (un colore per tipo,
+     come prima); le sfere mostrano il colore vero del nodo.
      La luce che segnala l'attività resta BIANCA, mai del colore del tipo.
      Tutte le funzioni colore lavorano su TERNE DI NUMERI e producono la
      stringa solo alla fine: passarsi stringhe fra loro era il difetto dello
@@ -678,8 +763,8 @@ const Grafico = (function () {
      -------------------------------------------------------------------- */
   const SOGLIA_RARO = 15;   // sotto: colore vivo proprio. da qui in su: famiglia blu
 
-  // famiglia blu: sfumature diverse ma sempre blu — così i tipi numerosi si
-  // separano fra loro senza rompere la prevalenza del blu
+  // famiglia blu: le stesse 7 ancore di prima — restano il centro attorno a
+  // cui ogni nodo blu si scosta di poco
   const BLU_FAMIGLIA = ['#4C8DF6', '#7DD3FC', '#3A6FD8', '#5AA9E6', '#6C7FE0', '#2E86AB', '#5B7FE8'];
   // colori vivi per i tipi pochi: ben distinti fra loro e dal blu
   const VIVI = ['#E8934A', '#C983C4', '#8B84E0', '#3FAE9B', '#E8617A', '#E0C34C', '#5FD68C'];
@@ -695,19 +780,73 @@ const Grafico = (function () {
   const str = (c, a) => 'rgba(' + c[0].toFixed(0) + ',' + c[1].toFixed(0) + ',' + c[2].toFixed(0) + ',' + a + ')';
   const esa3 = x => [parseInt(x.slice(1, 3), 16), parseInt(x.slice(3, 5), 16), parseInt(x.slice(5, 7), 16)];
 
-  // guarda quanti nodi ha ciascun tipo IN QUESTO DATO e assegna i colori: i
-  // numerosi in famiglia blu (sfumature diverse), i pochi con un colore vivo
-  // tutto loro. Ordinati dal più frequente, così il blu va sempre a chi
+  // RGB (0..255) <-> HSL (h 0..360, s/l 0..100): serve a scostare il colore di
+  // ogni nodo intorno all'ancora del suo tipo senza uscire dalla famiglia.
+  function rgbHsl(c) {
+    const r = c[0] / 255, g = c[1] / 255, b = c[2] / 255;
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2, d = mx - mn;
+    let h = 0, s = 0;
+    if (d > 0) {
+      s = d / (1 - Math.abs(2 * l - 1));
+      if (mx === r) h = 60 * (((g - b) / d) % 6);
+      else if (mx === g) h = 60 * ((b - r) / d + 2);
+      else h = 60 * ((r - g) / d + 4);
+      if (h < 0) h += 360;
+    }
+    return [h, s * 100, l * 100];
+  }
+  function hslRgb(h, s, l) {
+    h = ((h % 360) + 360) % 360; s = Math.max(0, Math.min(100, s)) / 100; l = Math.max(0, Math.min(100, l)) / 100;
+    const c = (1 - Math.abs(2 * l - 1)) * s, x = c * (1 - Math.abs((h / 60) % 2 - 1)), m = l - c / 2;
+    let r = 0, g = 0, b = 0;
+    if (h < 60) { r = c; g = x; } else if (h < 120) { r = x; g = c; }
+    else if (h < 180) { g = c; b = x; } else if (h < 240) { g = x; b = c; }
+    else if (h < 300) { r = x; b = c; } else { r = c; b = x; }
+    return [(r + m) * 255, (g + m) * 255, (b + m) * 255];
+  }
+  const ANCORE_BLU = BLU_FAMIGLIA.map(x => rgbHsl(esa3(x)));
+  const ANCORE_VIVI = VIVI.map(x => rgbHsl(esa3(x)));
+
+  // dispersione stabile del nome: FNV-1a a 32 bit, sempre lo stesso risultato
+  // per la stessa stringa (nessun Math.random, nessun seme condiviso con le
+  // posizioni — quelli restano un'altra cosa)
+  function hashNome(s) {
+    let h = 0x811c9dc5;
+    for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193); }
+    return h >>> 0;
+  }
+  // quanto ci si scosta dall'ancora: poco per i pochi (restano ben distinti
+  // fra loro), un filo di più per il blu (sono tanti, servono a distinguersi
+  // uno dall'altro) ma sempre dentro la stessa famiglia — mai abbastanza da
+  // sembrare un altro colore
+  const SCARTO = {
+    blu:  { h: 9, s: 11, l: 9 },
+    vivo: { h: 6, s: 9, l: 8 }
+  };
+  function coloreDiNodo(nome, ancora, famiglia) {
+    const j = SCARTO[famiglia] || SCARTO.blu;
+    const d1 = (((hashNome(nome) % 2001) / 1000) - 1);          // -1..1
+    const d2 = (((hashNome(nome + 'S') % 2001) / 1000) - 1);   // salata diversa: non correlata a d1
+    const d3 = (((hashNome(nome + 'L') % 2001) / 1000) - 1);   // salata ancora diversa da d1 e d2
+    const s = Math.max(30, Math.min(92, ancora[1] + d2 * j.s));
+    const l = Math.max(32, Math.min(74, ancora[2] + d3 * j.l));
+    return hslRgb(ancora[0] + d1 * j.h, s, l);
+  }
+
+  // guarda quanti nodi ha ciascun tipo IN QUESTO DATO e assegna, a ciascuna
+  // lettera, un'ANCORA (blu se numeroso, viva se raro) e la famiglia — non un
+  // colore già fatto: il colore vero di ogni nodo lo fa coloreDiNodo() sopra,
+  // nodo per nodo. Ordinati dal più frequente, così il blu va sempre a chi
   // davvero domina, non a un elenco fisso di lettere.
-  function assegnaColori(contaTipi) {
+  function assegnaFamiglie(contaTipi) {
     const lettere = Array.from(contaTipi.keys())
       .sort((a, b) => (contaTipi.get(b) - contaTipi.get(a)) || a.localeCompare(b));
     const p = new Map();
     let iBlu = 0, iVivo = 0;
     lettere.forEach(l => {
       const n = contaTipi.get(l) || 0;
-      if (n >= SOGLIA_RARO) { p.set(l, esa3(BLU_FAMIGLIA[iBlu % BLU_FAMIGLIA.length])); iBlu++; }
-      else { p.set(l, esa3(VIVI[iVivo % VIVI.length])); iVivo++; }
+      if (n >= SOGLIA_RARO) { p.set(l, { ancora: ANCORE_BLU[iBlu % ANCORE_BLU.length], famiglia: 'blu' }); iBlu++; }
+      else { p.set(l, { ancora: ANCORE_VIVI[iVivo % ANCORE_VIVI.length], famiglia: 'vivo' }); iVivo++; }
     });
     return p;
   }
@@ -742,9 +881,30 @@ const Grafico = (function () {
      numero di oggetti — ma si ferma: oltre quel punto SC è già più grande da
      solo, e continuare a gonfiare le sfere le farebbe diventare palloni che
      coprono i collegamenti invece di mostrarli. Misurato col riquadro
-     espanso a 1176x737: senza il tetto le sfere arrivavano a 26 px di raggio. */
-  const RIQUADRO_PER_UNITA = 300;   // px di lato del riquadro per un'unità di raggio
-  const PAVIMENTO_MASSIMO  = 0.62;  // oltre, la scala dell'inquadratura basta da sola
+     espanso a 1176x737: senza il tetto le sfere arrivavano a 26 px di raggio.
+
+     CORREZIONE DI SANTE (29/08, giro 3): «in miniatura le sfere sono troppo
+     grandi, e quando è grande sono piccole. Si potrebbero ingrandire di
+     poco.» Il difetto era che PAVIMENTO_MASSIMO (0,62) si raggiungeva già
+     oltre ~186px di lato (0,62*300): con un grafo grande — quello vero, 600+
+     oggetti, dove il pavimento vince quasi sempre — la miniatura (220px di
+     lato più corto) e l'ingrandito (800px) finivano SULLO STESSO pavimento
+     piatto, 0,62. Stessa scala assoluta su riquadri di taglia diversissima:
+     in miniatura le sfere risultano proporzionalmente enormi (un grappolo),
+     in grande proporzionalmente minuscole (spilli) — l'esatto contrario di
+     quel che deve succedere.
+
+     Ora il pavimento resta PROPORZIONALE al riquadro per un tratto molto più
+     lungo (RIQUADRO_PER_UNITA sale da 300 a 1150) e il tetto sale appena
+     (PAVIMENTO_MASSIMO 0,62 → 0,80: "di poco", come chiesto, e scatta solo
+     oltre i ~920px, che è già più del riquadro ingrandito tipico). Risultato,
+     con lo stesso identico grafo: a 320×220 il pavimento scende da 0,62 a
+     ~0,19 (le sfere si vedono più piccole, la forma della nuvola si legge); a
+     1200×800 sale da 0,62 a ~0,70 (un po' più grandi, non palloni). La regola
+     della taglia RELATIVA — n.r = 1.7 + radice(grado)*0.95 — resta quella di
+     sempre: qui si tocca solo il fattore di scala complessivo. */
+  const RIQUADRO_PER_UNITA = 1150;  // px di lato del riquadro per un'unità di raggio
+  const PAVIMENTO_MASSIMO  = 0.80;  // oltre, la scala dell'inquadratura basta da sola
   const RAGGIO_MINIMO      = 1.2;   // px: l'ultimo freno, sotto non si vede niente
 
   /* ----------------------------------------------------------------------
@@ -843,7 +1003,9 @@ const Grafico = (function () {
       if (nome) censisci(nome, tipi[nome] || lettera || tipoBersaglio(nome), !!tipi[nome]);
     });
 
-    // 3. gli estremi degli archi, con il grado (che è quello che fa la taglia)
+    // 3. gli estremi degli archi, con il grado (che è quello che fa la taglia).
+    //    Si tiene anche `rel` — la scelta di un nodo (punto D) deve poter dire
+    //    CON CHE COLLEGAMENTO un vicino è vicino, non solo che lo è.
     const coppie = [];
     elenco.forEach(v => {
       if (!Array.isArray(v) || v.length < 3) return;
@@ -853,14 +1015,17 @@ const Grafico = (function () {
       censisci(a, tipi[a] || tipoDedotto(rel, 'a', a), !!tipi[a]);
       grado.set(da, grado.get(da) + 1);
       grado.set(a, grado.get(a) + 1);
-      coppie.push([da, a]);
+      coppie.push([da, rel, a]);
     });
 
     // conta quanti nodi ha ciascun tipo IN QUESTO DATO: decide chi va in
-    // famiglia blu e chi resta con un colore vivo tutto suo (vedi I COLORI)
+    // famiglia blu e chi resta con un colore vivo tutto suo (vedi I COLORI).
+    // assegnaFamiglie dà l'ANCORA per tipo; il colore VERO è per nodo, sotto.
     const contaTipi = new Map();
     tipoDi.forEach(l => contaTipi.set(l, (contaTipi.get(l) || 0) + 1));
-    const palette = assegnaColori(contaTipi);
+    const famiglie = assegnaFamiglie(contaTipi);
+    const palette = new Map();   // per la legenda: un colore per tipo (l'ancora pura)
+    famiglie.forEach((f, l) => palette.set(l, hslRgb(f.ancora[0], f.ancora[1], f.ancora[2])));
 
     // 4. la nuvola. Ordine stabile (alfabetico) così il seme fisso dà sempre
     //    la stessa disposizione a parità di dato.
@@ -898,6 +1063,11 @@ const Grafico = (function () {
       // LA TAGLIA DIPENDE SOLO DAI COLLEGAMENTI, con la radice quadrata perché
       // l'occhio giudica l'area.
       n.r = 1.7 + Math.sqrt(n.g) * 0.95;
+      // IL COLORE È PER NODO (punto C): stesso nome, stesso colore, sempre —
+      // vedi coloreDiNodo(). L'ancora (famiglia blu o viva) resta per tipo.
+      const fam = famiglie.get(n.tp) || { ancora: ANCORE_BLU[0], famiglia: 'blu' };
+      n.col = coloreDiNodo(n.nome, fam.ancora, fam.famiglia);
+      n.fam = fam.famiglia;   // 'blu' | 'vivo' — solo per contare la maggioranza blu, non serve al disegno
       return n;
     });
 
@@ -911,10 +1081,10 @@ const Grafico = (function () {
     });
 
     const archi = [];
-    coppie.forEach(([da, a]) => {
+    coppie.forEach(([da, rel, a]) => {
       const i = posizione.get(da), j = posizione.get(a);
       if (i === undefined || j === undefined || i === j) return;
-      archi.push({ a: i, b: j, flusso: 0, attenzione: 0, verso: true });
+      archi.push({ a: i, b: j, rel: rel, flusso: 0, attenzione: 0, verso: true });
     });
 
     return { nodi: nodi, archi: archi, perChiave: posizione, perNome: perNome, palette: palette };
@@ -925,13 +1095,17 @@ const Grafico = (function () {
      -------------------------------------------------------------------- */
   let tela = null, ctx = null, osservatore = null;
   let NODI = [], ARCHI = [], PER_CHIAVE = new Map(), PER_NOME = new Map(), PALETTE = new Map();
+  let ADIACENZA = new Map();    // indice nodo -> [{i, rel}, ...]: i vicini diretti (punto D)
   let L = 0, A = 0, dpr = 1, cx = 0, cy = 0;
   let SC = 0, SCbersaglio = 1;
   let alpha = 1, GRAV = 0.012;                 // 'tondo' è la forma di partenza
   let rotY = 0, rotX = -0.2, fermoFino = 0;
   let trascina = false, ux0 = 0, uy0 = 0;
+  let downX = 0, downY = 0, mosso = false;     // per distinguere un tocco (seleziona) da un trascinamento
   let anim = null, ultimo = 0, sospeso = false, contaFotogrammi = 0;
   let ULTIMA_P = [];            // l'ultima proiezione disegnata: serve al hit-test del mouse
+  let SELEZIONATO_CHIAVE = null; // la chiave del nodo scelto (punto D), o null: per chiave, non per
+                                  // indice, perché gli indici si rimescolano a ogni dato nuovo
 
   const GRAVITA = { sparso: 0.006, tondo: 0.012, compatto: 0.022 };
   const PR = 560;                              // prospettiva
@@ -1146,19 +1320,38 @@ const Grafico = (function () {
     // parlato (dentro proietta()) sposta i punti rispetto a questo centro
     aggiornaBaricentro();
 
+    // LA SELEZIONE (punto D): l'indice VERO del nodo scelto, oggi — si tiene
+    // per chiave (SELEZIONATO_CHIAVE) ma qui serve l'indice. Se non c'è
+    // selezione, o il nodo scelto non c'è più in questo dato, haloSet resta
+    // null e SMORZO vale 1 ovunque: il disegno è IDENTICO a prima, non una
+    // variante — le forze, la taglia, la rotazione, la voce, l'alone non
+    // sanno nemmeno che questo pezzo esiste.
+    let haloSet = null, selIdx = -1;
+    if (SELEZIONATO_CHIAVE !== null) {
+      const si = PER_CHIAVE.get(SELEZIONATO_CHIAVE);
+      if (si !== undefined) {
+        selIdx = si;
+        haloSet = new Set([si]);
+        (ADIACENZA.get(si) || []).forEach(v => haloSet.add(v.i));
+      }
+    }
+
     ctx.clearRect(0, 0, L, A);
     const P = NODI.map(proietta);
-    ULTIMA_P = P;   // serve al hit-test del mouse per la colonna delle descrizioni
+    ULTIMA_P = P;   // serve al hit-test del mouse per la colonna del racconto
 
     // gli archi, dal più spento al più vivo e dal più lontano al più vicino
     ARCHI.map(a => ({ a: a, zz: (P[a.a].z + P[a.b].z) / 2 }))
       .sort((u, v) => (u.a.flusso - v.a.flusso) || (u.zz - v.zz))
       .forEach(({ a }) => {
+        // in piena luce se ENTRAMBI i capi sono nel gruppo scelto (il nodo o
+        // un suo vicino) — «gli archi fra loro pure», anche fra due vicini
+        const smorzo = !haloSet ? 1 : (haloSet.has(a.a) && haloSet.has(a.b)) ? 1 : SMORZA_ARCO;
         const p1 = P[a.a], p2 = P[a.b], zz = (p1.z + p2.z) / 2,
           op = 0.28 + 0.62 * (0.5 + 0.5 * Math.max(-1, Math.min(1, zz / 210)));
         ctx.beginPath(); ctx.moveTo(p1.X, p1.Y); ctx.lineTo(p2.X, p2.Y);
         // viola/rosso tenue: l'arco si stacca dal blu delle sfere, non lo ripete
-        ctx.strokeStyle = str(COL_LINEA, (0.11 + a.flusso * 0.30 + (a.attenzione || 0) * 0.18) * op);
+        ctx.strokeStyle = str(COL_LINEA, (0.11 + a.flusso * 0.30 + (a.attenzione || 0) * 0.18) * op * smorzo);
         // linee fini: il collegamento si legge, non pesa
         ctx.lineWidth = a.flusso > 0 ? 0.75 : 0.42;
         ctx.stroke();
@@ -1172,7 +1365,7 @@ const Grafico = (function () {
             if (a.verso === false) u = 1 - u;
             const X = p1.X + (p2.X - p1.X) * u, Y = p1.Y + (p2.Y - p1.Y) * u;
             ctx.beginPath(); ctx.arc(X, Y, 1.1, 0, 6.283);
-            ctx.fillStyle = 'rgba(255,255,255,' + (a.flusso * (1 - Math.abs(u - 0.5) * 0.9) * op) + ')';
+            ctx.fillStyle = 'rgba(255,255,255,' + (a.flusso * (1 - Math.abs(u - 0.5) * 0.9) * op * smorzo) + ')';
             ctx.fill();
           }
         }
@@ -1180,11 +1373,15 @@ const Grafico = (function () {
 
     // le sfere, dalla più lontana alla più vicina
     NODI.map((n, i) => ({ n: n, p: P[i], i: i })).sort((u, v) => u.p.z - v.p.z).forEach(({ n, p, i }) => {
+      // fuori dal gruppo scelto: si abbassa MOLTO, non sparisce (punto D)
+      const smorzo = !haloSet ? 1 : (haloSet.has(i) ? 1 : SMORZA_NODO);
       // profondità: sfumatura CONTINUA, mai un interruttore su z
       const prof = 0.34 + 0.66 * (0.5 + 0.5 * Math.max(-1, Math.min(1, p.z / 210)));
       const resp = n.pensa > 0 ? (0.42 + 0.30 * Math.sin(ora / 700)) * n.pensa : 0;
       const luce = Math.max(n.acceso, resp), rr = Math.max(RAGGIO_MINIMO, n.r * SCsfere * p.s);
-      const base = PALETTE.get(n.tp) || GRIGIO3;
+      // IL COLORE È PER NODO (punto C): n.col si calcola una volta sola in
+      // costruisci(), non qui — niente lettura di mappa per fotogramma.
+      const base = n.col || GRIGIO3;
 
       if (luce > 0.02) {
         // la luce dell'attività è BIANCA, mai del colore del tipo — SOLO
@@ -1195,8 +1392,8 @@ const Grafico = (function () {
         const spargimento = 6 + 15 * (1 - luce);
         const R2 = rr + spargimento * p.s;
         const g = ctx.createRadialGradient(p.X, p.Y, 0, p.X, p.Y, R2);
-        g.addColorStop(0, 'rgba(255,255,255,' + (0.20 * luce * prof) + ')');
-        g.addColorStop(0.4, 'rgba(255,255,255,' + (0.09 * luce * prof) + ')');
+        g.addColorStop(0, 'rgba(255,255,255,' + (0.20 * luce * prof * smorzo) + ')');
+        g.addColorStop(0.4, 'rgba(255,255,255,' + (0.09 * luce * prof * smorzo) + ')');
         g.addColorStop(1, 'rgba(255,255,255,0)');
         ctx.fillStyle = g; ctx.beginPath(); ctx.arc(p.X, p.Y, R2, 0, 6.283); ctx.fill();
       }
@@ -1208,7 +1405,7 @@ const Grafico = (function () {
       // coinvolto (schiarito) senza che il secondo sembri spento.
       const puro = luce <= 0 ? base : chiaro(base, Math.min(1, luce * 1.15));
       // opacità: poca a riposo (vetro), tanta se accesa — mai un disco piatto
-      const opac = 0.26 + 0.34 * prof + 0.40 * luce;
+      const opac = (0.26 + 0.34 * prof + 0.40 * luce) * smorzo;
       const sf = ctx.createRadialGradient(p.X - rr * 0.36, p.Y - rr * 0.38, rr * 0.05, p.X, p.Y, rr * 1.06);
       sf.addColorStop(0, str(lontano(chiaro(puro, 0.68), prof), opac));
       sf.addColorStop(0.55, str(lontano(puro, prof), opac));
@@ -1221,7 +1418,7 @@ const Grafico = (function () {
       if (rr > 1.6) {
         const spX = p.X - rr * 0.38, spY = p.Y - rr * 0.42, spR = rr * 0.55;
         const sp = ctx.createRadialGradient(spX, spY, 0, spX, spY, spR);
-        sp.addColorStop(0, 'rgba(255,255,255,' + (0.50 * prof) + ')');
+        sp.addColorStop(0, 'rgba(255,255,255,' + (0.50 * prof * smorzo) + ')');
         sp.addColorStop(1, 'rgba(255,255,255,0)');
         ctx.fillStyle = sp; ctx.beginPath(); ctx.arc(spX, spY, spR, 0, 6.283); ctx.fill();
       }
@@ -1229,26 +1426,32 @@ const Grafico = (function () {
       if (n.pensa > 0.02) {
         const battito = 0.5 + 0.5 * Math.sin(ora / 700), raggio = rr + 3.5 + battito * 4.5;
         ctx.beginPath(); ctx.arc(p.X, p.Y, raggio, 0, 6.283);
-        ctx.strokeStyle = 'rgba(190,215,255,' + ((0.10 + 0.30 * (1 - battito)) * n.pensa * prof) + ')';
+        ctx.strokeStyle = 'rgba(190,215,255,' + ((0.10 + 0.30 * (1 - battito)) * n.pensa * prof * smorzo) + ')';
         ctx.lineWidth = 0.9; ctx.stroke();
       }
       // bordo/alone più chiaro del corpo: il segno del vetro, sottile
       if (rr > 2.2) {
-        ctx.strokeStyle = str(lontano(chiaro(puro, 0.55), prof), 0.5);
+        ctx.strokeStyle = str(lontano(chiaro(puro, 0.55), prof), 0.5 * smorzo);
         ctx.lineWidth = 0.45; ctx.stroke();
       }
       if (nomi && luce > 0.45 && p.z >= 0) {
         ctx.font = '500 8.5px "IBM Plex Mono", ui-monospace, monospace';
         ctx.textAlign = 'center';
-        ctx.fillStyle = 'rgba(255,255,255,' + ((luce - 0.5) * 1.8) + ')';
+        ctx.fillStyle = 'rgba(255,255,255,' + ((luce - 0.5) * 1.8 * smorzo) + ')';
         ctx.fillText(n.nome, p.X, p.Y - rr - 5);
       }
-      // colonna delle descrizioni (da ingrandito): passando sopra la sua riga
+      // colonna del racconto (da ingrandito): passando sopra la sua riga
       // (o sopra il punto stesso) il punto si illumina con un anello netto —
       // qui SI vuole un anello, è un puntatore, non l'alone dell'attività
       if (colonnaVisibile && i === hoverAttivo) {
         ctx.beginPath(); ctx.arc(p.X, p.Y, rr + 5, 0, 6.283);
         ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = 1.2; ctx.stroke();
+      }
+      // il nodo SCELTO porta un anello netto sempre, anche a colonna chiusa:
+      // è la conferma visiva del tocco, non uno strumento della sola colonna
+      if (i === selIdx) {
+        ctx.beginPath(); ctx.arc(p.X, p.Y, rr + 4, 0, 6.283);
+        ctx.strokeStyle = 'rgba(255,255,255,0.92)'; ctx.lineWidth = 1.4; ctx.stroke();
       }
     });
   }
@@ -1283,17 +1486,42 @@ const Grafico = (function () {
   }
 
   /* ----------------------------------------------------------------------
-     TRASCINAMENTO: gira la mappa con il dito o il mouse. Non è interfaccia,
-     non aggiunge niente alla pagina: la rotazione riprende da sola dopo due
-     secondi.
+     TRASCINAMENTO E TOCCO (punto D)
+     Gira la mappa con il dito o il mouse — non è interfaccia, non aggiunge
+     niente alla pagina: la rotazione riprende da sola dopo due secondi.
+
+     Sono Pointer Event (pointerdown/up/move): valgono UGUALI per mouse, dito
+     e penna, non serve nessun codice a parte per il tablet — «funziona anche
+     col tocco» viene gratis da qui, se non lo si rompe distinguendo un tocco
+     vero da un trascinamento. La distinzione è lo spostamento totale fra
+     pointerdown e pointerup: sotto SOGLIA_TOCCO2 (in px², per non fare una
+     radice ad ogni movimento) è un tocco — sceglie il nodo sotto il dito, o
+     lo deseleziona se non c'è nessun nodo lì (il vuoto) o è già quello scelto
+     — altrimenti è un trascinamento e non tocca la selezione.
      -------------------------------------------------------------------- */
+  const SOGLIA_TOCCO2 = 36;   // 6px al quadrato: sotto, è un tocco, non un giro
+  const SMORZA_NODO = 0.14;   // quanto si abbassa un nodo FUORI dal gruppo scelto
+  const SMORZA_ARCO = 0.12;   // idem per gli archi
+
   function giu(e) {
     trascina = true; ux0 = e.clientX; uy0 = e.clientY;
+    downX = e.clientX; downY = e.clientY; mosso = false;
     if (tela.setPointerCapture) { try { tela.setPointerCapture(e.pointerId); } catch (x) { /* niente */ } }
   }
-  function su() { trascina = false; fermoFino = performance.now() + 2000; hoverAttivo = -1; }
+  function su(e) {
+    trascina = false; fermoFino = performance.now() + 2000; hoverAttivo = -1;
+    // un tocco vero (non un trascinamento): sceglie/deseleziona il nodo sotto
+    // il dito o il mouse. pointerleave arriva anche quando il pointer esce
+    // dal canvas mentre si trascina: lì non si sceglie niente.
+    if (!mosso && e && e.type === 'pointerup' && tela) {
+      const r = tela.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
+      selezionaToggle(trovaNodo(mx, my));
+    }
+  }
   function muovi(e) {
     if (trascina) {
+      const ddx = e.clientX - downX, ddy = e.clientY - downY;
+      if (!mosso && (ddx * ddx + ddy * ddy) > SOGLIA_TOCCO2) mosso = true;
       rotY += (e.clientX - ux0) * 0.006;
       rotX = Math.max(-1.2, Math.min(1.2, rotX + (e.clientY - uy0) * 0.005));
       ux0 = e.clientX; uy0 = e.clientY;
@@ -1301,9 +1529,16 @@ const Grafico = (function () {
       return;
     }
     // non si sta trascinando: cerca il punto sotto il mouse, per illuminare
-    // la sua riga nella colonna delle descrizioni (solo se è visibile)
+    // la sua riga nella colonna del racconto (solo se è visibile)
     if (!colonnaVisibile || !ULTIMA_P.length) return;
     const r = tela.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
+    hoverAttivo = trovaNodo(mx, my);
+  }
+
+  // il hit-test vero e proprio, condiviso fra l'evidenziazione al passaggio
+  // (solo a colonna aperta) e la scelta col tocco (sempre, colonna o no)
+  function trovaNodo(mx, my) {
+    if (!ULTIMA_P.length) return -1;
     let migliore = 240, trovato = -1;   // ~15,5px di raggio (240 ≈ 15,5²)
     for (let k = 0; k < ULTIMA_P.length; k++) {
       const p = ULTIMA_P[k];
@@ -1311,11 +1546,28 @@ const Grafico = (function () {
       const dx = p.X - mx, dy = p.Y - my, d2 = dx * dx + dy * dy;
       if (d2 < migliore) { migliore = d2; trovato = k; }
     }
-    hoverAttivo = trovato;
+    return trovato;
+  }
+
+  function chiaveDiIndice(i) { return (i >= 0 && i < NODI.length) ? NODI[i].chiave : null; }
+
+  // dal TOCCO SULLA SFERA: la stessa sfera una seconda volta, o il vuoto
+  // (i<0), tornano alla vista intera — è un TOGGLE, non un "set".
+  function selezionaToggle(i) {
+    const nuova = chiaveDiIndice(i);
+    SELEZIONATO_CHIAVE = (nuova !== null && nuova === SELEZIONATO_CHIAVE) ? null : nuova;
+    ultimoRendRacconto = 0;   // forza il prossimo fotogramma a ridisegnare subito la colonna
+  }
+  // DALLA COLONNA (o da Grafico.scegli esterno): un "set" diretto, non un
+  // toggle — cliccare un vicino nell'elenco deve sempre scegliere QUEL nodo,
+  // non alternarlo col nodo già scelto.
+  function selezionaImposta(i) {
+    SELEZIONATO_CHIAVE = chiaveDiIndice(i);
+    ultimoRendRacconto = 0;
   }
 
   /* ----------------------------------------------------------------------
-     LA COLONNA DELLE DESCRIZIONI (da ingrandito)
+     LA COLONNA DEL RACCONTO (da ingrandito)
 
      Compare a destra SOLO quando il grafico è espanso — la stessa classe
      "grande" che app.js già mette/toglie su document.body col bottone
@@ -1323,33 +1575,49 @@ const Grafico = (function () {
      leggerla. E solo se c'è davvero spazio (LARGHEZZA_RACCONTO): da piccolo,
      o da grande su uno schermo stretto, la colonna non c'è e non ruba nulla.
 
-     I dati sono quelli che accendi() ha già messo sui nodi (chi, azione, da
-     quando): non serve nessuna chiamata in più da app.js. Una riga per
-     oggetto acceso, non per sessione — così si legge "chi fa cosa dove",
-     esattamente come chiesto. Le righe si accendono/spengono con la STESSA
-     luce (n.acceso/n.pensa) delle sfere, quindi con la stessa dissolvenza
-     morbida: anche a sessione finita restano scritte (chiUltimo/azUltimo)
-     finché la luce non è del tutto spenta.
+     QUATTRO pezzi, in quest'ordine — Sante l'ha chiesta così, com'era prima
+     (vedi mappa-viva.html): Sessioni attive, Diario di bordo, sopra;
+     Elementi accesi, sotto. In mezzo, SOLO se un nodo è scelto (punto D), il
+     dettaglio della scelta — vicino agli elementi perché parla di loro.
+
+     Sessioni e diario arrivano da FUORI con Grafico.racconto({sessioni,
+     diario}) — vedi il contratto in cima al file. Elementi e selezione
+     Grafico se li costruisce da soli (accendi() per gli uni, il tocco sulla
+     sfera per l'altra): NESSUNA chiamata in più serve per quei due.
 
      Il contenuto si ricostruisce ogni RACCONTO_OGNI_MS (non ogni fotogramma:
      sarebbe solo spesa, la colonna non deve girare a 60 fps) con una
      transizione CSS che ammorbidisce il passo. L'evidenziazione incrociata
-     (riga <-> punto) invece si sincronizza OGNI fotogramma, è a costo quasi
-     zero (un giro sulle righe già disegnate).
+     (riga <-> punto, per gli elementi) invece si sincronizza OGNI fotogramma,
+     è a costo quasi zero (un giro sulle righe già disegnate). Una selezione
+     nuova (punto D) forza il refresh SUBITO (ultimoRendRacconto = 0): non ha
+     senso far aspettare 280ms un tocco che l'utente ha appena dato.
      -------------------------------------------------------------------- */
   const LARGHEZZA_RACCONTO = 620;     // sotto, niente colonna anche se "grande"
-  const LARGHEZZA_COLONNA = 236;      // px: spazio tolto al canvas quando compare
+  const LARGHEZZA_COLONNA = 250;      // px: spazio tolto al canvas quando compare
   const RACCONTO_OGNI_MS = 280;
+  const RIGHE_DIARIO_MOSTRATE = 12;   // quante righe di diario si vedono (le piu' recenti)
+  const RIGHE_DIARIO_TENUTE = 40;     // quante se ne tengono in memoria, oltre si buttano le vecchie
 
   let COLONNA = null, RIGHE_EL = null, LEGENDA_EL = null;
   let colonnaVisibile = false;
   let hoverAttivo = -1;                // indice nodo evidenziato, da riga O da punto
   let ultimoRendRacconto = 0;
+  let RACCONTO_SESSIONI = [];          // normalizzate da racconto(), vedi normalizzaSessioni()
+  let RACCONTO_DIARIO = [];            // normalizzate da racconto(), vedi normalizzaDiario()
 
   const NOMI_TIPO = { w: 'workflow', t: 'tabella', n: 'nodo', e: 'edge', o: 'Odoo', m: 'memoria', g: 'regola' };
   const NOMI_AZIONE = { legge: 'legge', scrive: 'scrive', pensa: 'ci sta pensando' };
+  // il tipo di collegamento (punto D): le sigle vere che usa grafo_json(),
+  // in parole. Una sigla non elencata si mostra così com'è — non sparisce.
+  const NOMI_RELAZIONE = {
+    w2n: 'contiene il nodo', n2o: 'chiama Odoo', m2o: 'scritto in memoria',
+    g2o: 'nato da una regola', chiama_edge: 'chiama edge', usa_odoo: 'usa Odoo',
+    usa_tabella: 'usa tabella'
+  };
   const nomeTipo = tp => NOMI_TIPO[tp] || tp;
   const nomeAzione = az => NOMI_AZIONE[az] || escapeHtml(az);
+  const nomeRelazione = r => NOMI_RELAZIONE[r] || (r ? escapeHtml(r) : 'collegato');
 
   // schermatura: qui arriva testo che viene dal database (nomi di oggetti,
   // nomi di sessione), va sempre schermato prima di finire nell'HTML
@@ -1361,6 +1629,61 @@ const Grafico = (function () {
     if (s < 60) return s + 's';
     return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
   }
+  // l'ora di un orologio vero (diario di bordo): HH:MM, o '--:--' se non si
+  // legge — meglio un trattino onesto che una data sbagliata
+  function formattaOra(t) {
+    if (!t) return '--:--';
+    const d = new Date(t);
+    if (isNaN(d.getTime())) return '--:--';
+    return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+  }
+
+  /* ── LETTURE PRUDENTI di racconto({sessioni, diario}) ──────────────────
+     Stessa logica di sessioni.js: davanti a null, campi assenti, tipi
+     sbagliati si torna un ripiego onesto, mai un'eccezione. */
+
+  // "al lavoro da": prova ferma_da_s (il dato buono, gia' in secondi), poi
+  // vista_at (una data ISO) — la stessa scelta di sessioni.js, per restare
+  // coerenti con la fascia in cima alla pagina.
+  function etaSessione(g) {
+    const f = g.ferma_da_s;
+    if (typeof f === 'number' && isFinite(f)) return Math.max(0, f);
+    if (typeof f === 'string' && f.trim() !== '' && isFinite(Number(f))) return Math.max(0, Number(f));
+    const v = g.vista_at;
+    if (typeof v === 'string' && v.trim()) {
+      const t = Date.parse(v);
+      if (!isNaN(t)) return Math.max(0, (Date.now() - t) / 1000);
+    }
+    return Infinity;
+  }
+  function normalizzaSessioni(dato) {
+    const grezze = Array.isArray(dato) ? dato : (dato && Array.isArray(dato.sessioni) ? dato.sessioni : []);
+    return grezze.filter(g => g && typeof g === 'object' && g.sessione).map(g => ({
+      nome: String(g.sessione),
+      stato: String(g.stato || ''),
+      compito: g.compito ? String(g.compito) : '',
+      eta: etaSessione(g)
+    }));
+  }
+  // il diario: {at, riga, sessione} è la forma VERA che restituisce
+  // conv_pagina_stato (corretto qui il 29/08: la consegna originale
+  // ipotizzava `chi` come nome canonico, ma il dato vero usa `sessione`).
+  // Si accettano comunque gli alias (testo/nota per riga, ora/quando per at,
+  // e `chi`/`autore` come alternative a `sessione`) per tolleranza — vedi il
+  // contratto in cima al file. Si riordina SEMPRE dal più recente, qualunque
+  // sia l'ordine in cui è arrivato: non ci si fida di chi lo chiama.
+  function normalizzaDiario(dato) {
+    const grezze = Array.isArray(dato) ? dato : (dato && Array.isArray(dato.diario) ? dato.diario : []);
+    const righe = grezze.filter(g => g && typeof g === 'object').map(g => {
+      const riga = g.riga != null ? g.riga : (g.testo != null ? g.testo : (g.nota != null ? g.nota : ''));
+      const chi = g.sessione != null ? g.sessione : (g.chi != null ? g.chi : (g.autore != null ? g.autore : null));
+      const at = g.at != null ? g.at : (g.ora != null ? g.ora : (g.quando != null ? g.quando : null));
+      const t = (typeof at === 'string') ? Date.parse(at) : (typeof at === 'number' ? at : NaN);
+      return { riga: String(riga || '').trim(), chi: chi ? String(chi) : null, t: isNaN(t) ? 0 : t };
+    }).filter(r => r.riga);
+    righe.sort((a, b) => b.t - a.t);
+    return righe.slice(0, RIGHE_DIARIO_TENUTE);
+  }
 
   // lo stile vive qui, non in guscio.html: un solo <style> per pagina, con
   // classi tutte prefissate "gr-" per non toccare nient'altro
@@ -1370,11 +1693,14 @@ const Grafico = (function () {
     s.id = 'grafico-racconto-stile';
     s.textContent =
       '.gr-colonna{position:absolute;top:0;right:0;bottom:0;width:' + LARGHEZZA_COLONNA + 'px;' +
-        'max-width:42%;display:flex;flex-direction:column;background:rgba(10,14,21,.90);' +
+        'max-width:44%;display:flex;flex-direction:column;background:rgba(10,14,21,.90);' +
         'border-left:1px solid rgba(255,255,255,.09);font-family:"IBM Plex Mono",ui-monospace,monospace;' +
         'opacity:0;pointer-events:none;transition:opacity .4s ease}' +
       '.gr-colonna.gr-visibile{opacity:1;pointer-events:auto}' +
       '.gr-righe{flex:1 1 auto;overflow-y:auto;padding:10px 9px 4px}' +
+      '.gr-sez{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#4A5566;' +
+        'margin:12px 4px 6px;padding-top:9px;border-top:1px solid rgba(255,255,255,.07)}' +
+      '.gr-sez:first-child{margin-top:0;padding-top:0;border-top:none}' +
       '.gr-riga{display:flex;gap:7px;padding:5px 4px;border-radius:5px;' +
         'transition:opacity .5s linear,background .15s}' +
       '.gr-riga.gr-evidenziata{background:rgba(255,255,255,.09)}' +
@@ -1382,7 +1708,26 @@ const Grafico = (function () {
       '.gr-nome{font-size:11px;color:#C9D2DE;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
       '.gr-meta{font-size:10px;color:#7A8798;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
       '.gr-meta b{color:#9FB0C4;font-weight:500}' +
-      '.gr-vuota{font-size:11px;color:#4A5566;font-style:italic;padding:8px 4px;margin:0}' +
+      '.gr-vuota{font-size:11px;color:#4A5566;font-style:italic;padding:4px 4px 8px;margin:0}' +
+      // sessioni attive: pallino + nome + compito, come gli elementi ma senza data-i (non si accendono da sole)
+      '.gr-sess{display:flex;gap:7px;padding:4px 4px}' +
+      '.gr-sess .gr-pallino{margin-top:5px}' +
+      '.gr-sess-testo{min-width:0}' +
+      '.gr-sess-nome{font-size:11px;color:#C9D2DE;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
+      '.gr-sess-fa{font-size:10.5px;color:#7A8798;overflow-wrap:anywhere}' +
+      // diario di bordo: ora + testo, come mappa-viva
+      '.gr-diar{display:flex;gap:8px;padding:3px 4px;font-size:10.5px;line-height:1.4}' +
+      '.gr-diar-ora{color:#4A5566;flex:0 0 auto;font-variant-numeric:tabular-nums}' +
+      '.gr-diar-chi{color:#9FB0C4;font-weight:500}' +
+      '.gr-diar-testo{color:#7A8798;overflow-wrap:anywhere}' +
+      // la scelta (punto D): nome del nodo (si tocca per deselezionare) + i vicini, ognuno col suo collegamento
+      '.gr-sel{padding:2px 4px 6px;display:flex;align-items:baseline;gap:7px;flex-wrap:wrap}' +
+      '.gr-sel-nome{font-size:11.5px;color:#fff;font-weight:600;cursor:pointer;overflow-wrap:anywhere}' +
+      '.gr-sel-tipo{font-size:10px;color:#7A8798}' +
+      '.gr-vic{display:flex;align-items:center;gap:7px;padding:3px 4px;cursor:pointer;border-radius:4px}' +
+      '.gr-vic:hover{background:rgba(255,255,255,.07)}' +
+      '.gr-vic .gr-nome{flex:1 1 auto}' +
+      '.gr-vic-rel{color:#7A8798;font-size:10px;white-space:nowrap;flex:0 0 auto}' +
       '.gr-legenda{flex:0 0 auto;display:flex;flex-wrap:wrap;gap:6px 10px;padding:8px 9px;' +
         'border-top:1px solid rgba(255,255,255,.09);font-size:10px;color:#7A8798}' +
       '.gr-lg{display:flex;align-items:center;gap:4px;white-space:nowrap}' +
@@ -1392,7 +1737,9 @@ const Grafico = (function () {
 
   // crea la colonna dentro il contenitore del canvas: una volta sola per
   // ogni avvia(). Delegazione sulle righe (un solo ascoltatore, non uno a
-  // riga: le righe si ricostruiscono spesso, gli ascoltatori delegati no)
+  // riga: le righe si ricostruiscono spesso, gli ascoltatori delegati no) —
+  // sia per l'hover (evidenzia il punto) sia per il clic (punto D: scegliere
+  // un vicino o un elemento acceso dalla colonna, deselezionare col nome).
   function creaColonna() {
     if (COLONNA || !tela) return;
     iniettaStile();
@@ -1406,10 +1753,17 @@ const Grafico = (function () {
     RIGHE_EL = COLONNA.querySelector('.gr-righe');
     LEGENDA_EL = COLONNA.querySelector('.gr-legenda');
     RIGHE_EL.addEventListener('mouseover', e => {
-      const r = e.target.closest('.gr-riga');
+      const r = e.target.closest('.gr-riga[data-i]');
       if (r) hoverAttivo = parseInt(r.dataset.i, 10);
     });
     RIGHE_EL.addEventListener('mouseleave', () => { hoverAttivo = -1; });
+    RIGHE_EL.addEventListener('click', e => {
+      const vic = e.target.closest('.gr-vic[data-i]');
+      if (vic) { selezionaImposta(parseInt(vic.dataset.i, 10)); return; }
+      if (e.target.closest('.gr-sel-nome')) { selezionaImposta(-1); return; }
+      const riga = e.target.closest('.gr-riga[data-i]');
+      if (riga) { selezionaImposta(parseInt(riga.dataset.i, 10)); }
+    });
   }
   function distruggiColonna() {
     if (COLONNA && COLONNA.parentElement) COLONNA.parentElement.removeChild(COLONNA);
@@ -1441,21 +1795,95 @@ const Grafico = (function () {
     LEGENDA_EL.innerHTML = voci.join('');
   }
 
-  // il contenuto vero e proprio: una riga per oggetto acceso ADESSO (o in
-  // coda di raffreddamento). Richiamata poco spesso (RACCONTO_OGNI_MS): fra
-  // una ricostruzione e l'altra si sincronizza solo l'evidenziazione, che è
+  // 1) sessioni attive — solo chi è davvero 'ingaggiata' ADESSO. Due messaggi
+  // vuoti diversi apposta (come in sessioni.js/mappa-viva): "non lo so"
+  // (niente dato) non è la stessa bugia di "lo so, ed è fermo tutto".
+  function renderSessioni() {
+    if (!RACCONTO_SESSIONI.length) return '<p class="gr-vuota">nessuna sessione in questo momento</p>';
+    const vive = RACCONTO_SESSIONI.filter(s => s.stato === 'ingaggiata');
+    if (!vive.length) return '<p class="gr-vuota">nessuna sessione al lavoro</p>';
+    return vive.map(s => {
+      const ferma = isFinite(s.eta) && s.eta > 360;   // stessa soglia di sessioni.js
+      const pallino = 'background:' + (ferma ? 'rgba(255,255,255,.35)' : '#fff');
+      const da = isFinite(s.eta) ? ' · da ' + formattaDa(s.eta * 1000) : '';
+      return '<div class="gr-sess"><i class="gr-pallino" style="' + pallino + '"></i>'
+        + '<div class="gr-sess-testo"><div class="gr-sess-nome">' + escapeHtml(s.nome) + '</div>'
+        + '<div class="gr-sess-fa">' + (s.compito ? escapeHtml(s.compito) : 'nessun compito dichiarato') + da + '</div>'
+        + '</div></div>';
+    }).join('');
+  }
+
+  // 2) diario di bordo — le ultime righe, dalla più recente
+  function renderDiario() {
+    if (!RACCONTO_DIARIO.length) return '<p class="gr-vuota">nessuna riga di diario</p>';
+    return RACCONTO_DIARIO.slice(0, RIGHE_DIARIO_MOSTRATE).map(r =>
+      '<div class="gr-diar"><span class="gr-diar-ora">' + formattaOra(r.t) + '</span>'
+      + '<div>' + (r.chi ? '<b class="gr-diar-chi">' + escapeHtml(r.chi) + '</b> ' : '')
+      + '<span class="gr-diar-testo">' + escapeHtml(r.riga) + '</span></div></div>'
+    ).join('');
+  }
+
+  // 3) il nodo scelto e i suoi vicini diretti, col tipo di collegamento
+  // (punto D) — assente (stringa vuota, niente titolo) se non c'è selezione.
+  function renderSelezione() {
+    if (SELEZIONATO_CHIAVE === null) return '';
+    const i = PER_CHIAVE.get(SELEZIONATO_CHIAVE);
+    if (i === undefined) return '';
+    const n = NODI[i];
+    const vicini = (ADIACENZA.get(i) || []).slice()
+      .sort((a, b) => NODI[a.i].nome.localeCompare(NODI[b.i].nome));
+    const righeVicini = vicini.map(v => {
+      const vn = NODI[v.i];
+      return '<div class="gr-vic" data-i="' + v.i + '">'
+        + '<i class="gr-pallino" style="background:' + str(vn.col || GRIGIO3, 1) + '"></i>'
+        + '<span class="gr-nome">' + escapeHtml(vn.nome) + '</span>'
+        + '<span class="gr-vic-rel">' + nomeRelazione(v.rel) + '</span></div>';
+    }).join('');
+    return '<p class="gr-sez">Selezionato</p>'
+      + '<div class="gr-sel"><span class="gr-sel-nome" title="tocca per deselezionare">' + escapeHtml(n.nome) + '</span>'
+      + '<span class="gr-sel-tipo">' + escapeHtml(nomeTipo(n.tp)) + '</span></div>'
+      + (righeVicini || '<p class="gr-vuota">nessun collegamento diretto</p>');
+  }
+
+  // 4) elementi accesi — una riga per oggetto acceso ADESSO (o in coda di
+  // raffreddamento): esattamente come prima, nessun dato in più.
+  function renderElementi(ora) {
+    const attivi = [];
+    NODI.forEach((n, i) => {
+      const luce = Math.max(n.acceso || 0, n.pensa || 0);
+      if (luce > 0.02 && (n.chi || n.chiUltimo)) attivi.push({ n: n, i: i, luce: luce });
+    });
+    attivi.sort((a, b) => b.luce - a.luce);
+    if (!attivi.length) return '<p class="gr-vuota">nessuna sessione al lavoro</p>';
+    return attivi.map(({ n, i, luce }) => {
+      const base = n.col || GRIGIO3;
+      const chiMostrato = n.chi || n.chiUltimo || '—';
+      const azMostrata = n.az || n.azUltimo || 'legge';
+      const pensa = azMostrata === 'pensa';
+      const pallino = pensa
+        ? 'background:transparent;border:1px solid rgba(190,215,255,.85)'
+        : 'background:' + (n.chi ? '#fff' : str(base, 1));
+      const da = n.dal ? ' · da ' + formattaDa(ora - n.dal) : '';
+      return '<div class="gr-riga" data-i="' + i + '" style="opacity:' + Math.max(0.2, Math.min(1, luce)).toFixed(2) + '">'
+        + '<i class="gr-pallino" style="' + pallino + '"></i>'
+        + '<div><div class="gr-nome">' + escapeHtml(n.nome) + '</div>'
+        + '<div class="gr-meta"><b>' + escapeHtml(chiMostrato) + '</b> · ' + nomeAzione(azMostrata) + da + '</div>'
+        + '</div></div>';
+    }).join('');
+  }
+
+  // il contenuto vero e proprio, nell'ordine di Sante: sessioni, diario,
+  // (selezione se c'è), elementi. Richiamata poco spesso (RACCONTO_OGNI_MS) —
+  // o subito, se una selezione nuova l'ha appena chiesto (ultimoRendRacconto
+  // azzerato da selezionaToggle/selezionaImposta): fra una ricostruzione e
+  // l'altra si sincronizza solo l'evidenziazione degli elementi, che è
   // gratis, sulle righe già presenti nel DOM.
   function aggiornaRacconto(ora) {
     if (!COLONNA) return;
     if (ora - ultimoRendRacconto < RACCONTO_OGNI_MS) {
       if (RIGHE_EL) {
-        const figli = RIGHE_EL.children;
-        for (let k = 0; k < figli.length; k++) {
-          const el = figli[k];
-          if (el.dataset && el.dataset.i !== undefined) {
-            el.classList.toggle('gr-evidenziata', parseInt(el.dataset.i, 10) === hoverAttivo);
-          }
-        }
+        const figli = RIGHE_EL.querySelectorAll('.gr-riga[data-i]');
+        figli.forEach(el => el.classList.toggle('gr-evidenziata', parseInt(el.dataset.i, 10) === hoverAttivo));
       }
       return;
     }
@@ -1463,32 +1891,12 @@ const Grafico = (function () {
     aggiornaColonna();
     if (!colonnaVisibile) return;
 
-    const attivi = [];
-    NODI.forEach((n, i) => {
-      const luce = Math.max(n.acceso || 0, n.pensa || 0);
-      if (luce > 0.02 && (n.chi || n.chiUltimo)) attivi.push({ n: n, i: i, luce: luce });
-    });
-    attivi.sort((a, b) => b.luce - a.luce);
+    RIGHE_EL.innerHTML =
+      '<p class="gr-sez">Sessioni attive</p>' + renderSessioni() +
+      '<p class="gr-sez">Diario di bordo</p>' + renderDiario() +
+      renderSelezione() +
+      '<p class="gr-sez">Elementi accesi</p>' + renderElementi(ora);
 
-    if (!attivi.length) {
-      RIGHE_EL.innerHTML = '<p class="gr-vuota">nessuna sessione al lavoro</p>';
-    } else {
-      RIGHE_EL.innerHTML = attivi.map(({ n, i, luce }) => {
-        const base = PALETTE.get(n.tp) || GRIGIO3;
-        const chiMostrato = n.chi || n.chiUltimo || '—';
-        const azMostrata = n.az || n.azUltimo || 'legge';
-        const pensa = azMostrata === 'pensa';
-        const pallino = pensa
-          ? 'background:transparent;border:1px solid rgba(190,215,255,.85)'
-          : 'background:' + (n.chi ? '#fff' : str(base, 1));
-        const da = n.dal ? ' · da ' + formattaDa(ora - n.dal) : '';
-        return '<div class="gr-riga" data-i="' + i + '" style="opacity:' + Math.max(0.2, Math.min(1, luce)).toFixed(2) + '">'
-          + '<i class="gr-pallino" style="' + pallino + '"></i>'
-          + '<div><div class="gr-nome">' + escapeHtml(n.nome) + '</div>'
-          + '<div class="gr-meta"><b>' + escapeHtml(chiMostrato) + '</b> · ' + nomeAzione(azMostrata) + da + '</div>'
-          + '</div></div>';
-      }).join('');
-    }
     aggiornaLegenda();
   }
 
@@ -1508,6 +1916,21 @@ const Grafico = (function () {
     return i === undefined ? -1 : i;
   }
 
+  // gli indici dei vicini diretti di ogni nodo, con il tipo di collegamento
+  // (punto D): si ricostruisce ogni volta che arrivano archi nuovi, mai
+  // dentro il fotogramma — costa un giro sugli archi, non ne vale la pena
+  // farlo 60 volte al secondo.
+  function costruisciAdiacenza(archi) {
+    const m = new Map();
+    archi.forEach(l => {
+      if (!m.has(l.a)) m.set(l.a, []);
+      if (!m.has(l.b)) m.set(l.b, []);
+      m.get(l.a).push({ i: l.b, rel: l.rel });
+      m.get(l.b).push({ i: l.a, rel: l.rel });
+    });
+    return m;
+  }
+
   function applicaDato(nuovi) {
     const vecchi = new Map();
     NODI.forEach(n => vecchi.set(n.chiave, n));
@@ -1518,6 +1941,11 @@ const Grafico = (function () {
     PER_CHIAVE = costruito.perChiave;
     PER_NOME = costruito.perNome;
     PALETTE = costruito.palette;
+    ADIACENZA = costruisciAdiacenza(ARCHI);
+    // la selezione (punto D) si tiene per CHIAVE apposta: se il nodo scelto
+    // non c'è più in questo dato (tolto, o mai stato lì), si torna alla vista
+    // intera — non deve restare a puntare a un indice che ora è un altro nodo
+    if (SELEZIONATO_CHIAVE !== null && !PER_CHIAVE.has(SELEZIONATO_CHIAVE)) SELEZIONATO_CHIAVE = null;
     // se la nuvola è cambiata si riassesta un po', senza ricominciare da capo
     if (cambiato) alpha = Math.max(alpha, 0.35);
     inquadra();
@@ -1543,10 +1971,13 @@ const Grafico = (function () {
       tela = canvas;
       ctx = canvas.getContext('2d');
       NODI = []; ARCHI = []; PER_CHIAVE = new Map(); PER_NOME = new Map(); PALETTE = new Map();
+      ADIACENZA = new Map(); SELEZIONATO_CHIAVE = null;
       SC = 0; alpha = 1; rotY = 0; rotX = -0.2; sospeso = false; contaFotogrammi = 0;
+      trascina = false; mosso = false; downX = 0; downY = 0;
       voceChi = null; voceBersaglio = 0; voceLivello = 0; VOCE_SCALA = 1;
       CENTRO_X = 0; CENTRO_Y = 0; CENTRO_Z = 0; ULTIMA_P = [];
       hoverAttivo = -1; ultimoRendRacconto = 0;
+      RACCONTO_SESSIONI = []; RACCONTO_DIARIO = [];
 
       applicaDato(dato);
       misura();
@@ -1602,6 +2033,36 @@ const Grafico = (function () {
         if (n.az === 'pensa') n.pensa = 1; else n.acceso = 1;
       });
       return this;
+    },
+
+    /* le sessioni attive e il diario di bordo per la colonna del racconto
+       (punto A) — vedi il contratto in cima al file per la forma esatta.
+       dato = {sessioni, diario}. Non tocca gli elementi accesi (accendi()
+       resta l'unica fonte per quelli) né la selezione (punto D). */
+    racconto: function (dato) {
+      RACCONTO_SESSIONI = normalizzaSessioni((dato && dato.sessioni) || []);
+      RACCONTO_DIARIO = normalizzaDiario((dato && dato.diario) || []);
+      ultimoRendRacconto = 0;   // il prossimo fotogramma ridisegna subito
+      return this;
+    },
+
+    /* sceglie (o toglie, se nome è vuoto o è già il nodo scelto) un nodo per
+       nome o chiave — punto D. La stessa cosa che fa un tocco sulla sfera,
+       comandabile da fuori (per esempio dalla colonna). */
+    scegli: function (nome) {
+      if (!nome) { SELEZIONATO_CHIAVE = null; ultimoRendRacconto = 0; return this; }
+      const i = indiceDi(nome);
+      if (i < 0) return this;
+      const nuova = chiaveDiIndice(i);
+      SELEZIONATO_CHIAVE = (nuova === SELEZIONATO_CHIAVE) ? null : nuova;
+      ultimoRendRacconto = 0;
+      return this;
+    },
+
+    /* la chiave del nodo scelto adesso, o null se non c'è selezione */
+    scelto: function () {
+      if (SELEZIONATO_CHIAVE === null || !PER_CHIAVE.has(SELEZIONATO_CHIAVE)) return null;
+      return SELEZIONATO_CHIAVE;
     },
 
     /* 'sparso' | 'tondo' | 'compatto' — cambia la gravità e riassesta */
@@ -9258,6 +9719,19 @@ const rifiutato = e => /"message"\s*:\s*"no"|JWT|apikey|No API key/i.test(String
 // ── il testo a schermo: markdown essenziale, quello che si usa davvero ────────
 function html(t){
   const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  // colora le variabili dentro il codice in linea, come fa Claude in chat.
+  // ATTENZIONE alla sicurezza: questa funzione lavora SEMPRE su testo GIA'
+  // schermato da esc() (chiamata dal chiamante, vedi sotto) — & < > sono gia'
+  // entita', quindi qui si aggiungono solo <span> con classi fisse, mai
+  // marcatura che arrivi dal database. Distingue: stringhe fra apici, nomi
+  // con trattino basso o punto (tabelle, funzioni, file), numeri.
+  const colora = s => s.replace(
+    /("[^"]*"|'[^']*'|[A-Za-z][A-Za-z0-9]*(?:[._][A-Za-z0-9]+)+|\b\d+(?:\.\d+)?\b)/g,
+    tok => {
+      if(tok[0]==='"' || tok[0]==="'") return '<span class="cv-str">'+tok+'</span>';
+      if(/^\d/.test(tok)) return '<span class="cv-num">'+tok+'</span>';
+      return '<span class="cv-nome">'+tok+'</span>';
+    });
   const blocchi = [];
   t = String(t||'').replace(/```(\w*)\n([\s\S]*?)```/g, (m,l,c)=>{
     blocchi.push('<pre><code>'+esc(c.replace(/\n$/,''))+'</code></pre>');
@@ -9276,7 +9750,7 @@ function html(t){
        .replace(/^[-•] (.+)$/gm,'<li>$1</li>')
        .replace(/(<li>[\s\S]*?<\/li>)(?!\s*<li>)/g,'<ul>$1</ul>')
        .replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>')
-       .replace(/`([^`]+)`/g,'<code>$1</code>')
+       .replace(/`([^`]+)`/g,(m,c)=>'<code>'+colora(c)+'</code>')
        .replace(/\n{2,}/g,'</p><p>').replace(/\n/g,'<br>');
   return ('<p>'+t+'</p>').replace(/(\d+)/g, (m,i)=>blocchi[i]);
 }
@@ -9684,6 +10158,15 @@ async function guarda(){
         else                   segno('pronto','in ascolto');
       }
       if(grafoAvviato) try{ Grafico.accendi(s.accesi||[]); }catch(e){}
+      // punto A (giro 3, vedi consegna-grafico3.md): sessioni attive e diario
+      // di bordo nella colonna del racconto, sopra gli elementi accesi.
+      // 'ses' e' la STESSA risposta di conv_pagina_sessioni gia' letta sopra
+      // per Sessioni.dai(ses) — nessuna richiesta in piu' al database.
+      // 's.diario' e' un campo NUOVO che conv_pagina_stato deve restituire,
+      // [{at, chi, riga}, ...] (accetta anche sessione/testo/nota,
+      // ora/quando): finche' non c'e', la colonna dice "nessuna riga di
+      // diario" e non si rompe.
+      if(grafoAvviato) try{ Grafico.racconto({sessioni: ses, diario: s.diario}); }catch(e){}
     }
 
     const adesso = Date.now();
