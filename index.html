@@ -5969,7 +5969,10 @@ function html(t){
 }
 const ora = s => new Date(s).toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'});
 
+const giaDisegnate = new Set();
+
 function aggiungi(m){
+  if(m && m.id != null){ if(giaDisegnate.has(m.id)) return; giaDisegnate.add(m.id); }
   const vuoto = discorso.querySelector('.vuoto');
   if(vuoto) vuoto.remove();
   const d = document.createElement('div');
@@ -6200,7 +6203,11 @@ async function prendiGrafo(){
 }
 
 // ── il giro: messaggi, stato, e ogni tanto il flusso ─────────────────────────
+let giroInCorso = false;
+
 async function guarda(){
+  if(giroInCorso) return;   // un giro alla volta: due giri insieme disegnano le stesse battute due volte
+  giroInCorso = true;
   try{
     const nuovi = await rpc('conv_pagina_leggi',{p_pass:PASS,p_dopo:ultimoId});
     (nuovi||[]).forEach(m => { ultimoId = Math.max(ultimoId, m.id); confermata(m); aggiungi(m); });
@@ -6240,6 +6247,8 @@ async function guarda(){
   }catch(e){
     if(rifiutato(e)) chiediIngresso('i valori salvati non funzionano più');
     else segno('pronto','database non raggiungibile');
+  }finally{
+    giroInCorso = false;
   }
 }
 
