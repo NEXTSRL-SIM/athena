@@ -5992,7 +5992,8 @@ const discorso = $('#discorso'), spia = $('#spia'), statoTesto = $('#statoTesto'
       livelloBarra = $('#livello i'), contaNuove = $('#contaNuove'),
       graficoBox = $('#graficoBox'), graficoConta = $('#graficoConta');
 
-let primoGiro = true;   // la conversazione gia avvenuta si disegna ma NON si rilegge a voce\nlet ultimoId = 0, ultimoFlusso = 0, schedaAperta = 'conversazione';
+let primoGiro = true;   // la conversazione gia avvenuta si disegna ma NON si rilegge a voce
+let ultimoId = 0, ultimoFlusso = 0, schedaAperta = 'conversazione';
 let battito = null, quandoFlusso = 0, quandoGrafo = 0, grafoAvviato = false;
 
 // il browser ricorda; se non può (finestra anonima, storage bloccato) si riparte
