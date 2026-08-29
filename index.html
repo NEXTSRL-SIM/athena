@@ -612,7 +612,10 @@
         devicePixelRatio). Nessun riferimento a window.innerWidth/innerHeight.
 
    Nessuna interfaccia: bottoni, pannelli, diario e legenda li mette chi usa il
-   modulo, chiamando forma() e accendi().
+   modulo, chiamando forma() e accendi(). L'UNICA eccezione è la colonna delle
+   descrizioni da ingrandito (vedi più sotto): quella se la costruisce da solo,
+   perché i dati per scriverla (chi, cosa, che azione, da quando) sono già
+   tutti dentro accendi() — non serviva una chiamata in più da fuori.
 
    CONTRATTO
      Grafico.avvia(canvas, dati)   costruisce e comincia a disegnare
@@ -622,10 +625,24 @@
      Grafico.ferma()               sospende il disegno (scheda in secondo piano)
      Grafico.riprendi()
      Grafico.dimensione()          {nodi, archi}
-     Grafico.voce(livello, chi)    livello 0..1, chi 'parla'|'ascolta': la nuvola
-                                   pulsa a tempo — verso fuori se parla, dentro
-                                   se ascolta. La rotazione oraria non si tocca.
+     Grafico.voce(livello, chi)    livello 0..1, chi 'parla'|'ascolta': OGNI
+                                   PUNTO si sposta lungo il raggio che lo unisce
+                                   al baricentro della nuvola — verso fuori se
+                                   parla, dentro se ascolta. Le sfere non
+                                   cambiano taglia, la rotazione oraria non si
+                                   tocca.
      Grafico.voceFine()            torna a riposo, morbido, mai di scatto
+
+   LA COLONNA DELLE DESCRIZIONI (da ingrandito)
+   Quando il riquadro del grafico è espanso — cioè quando document.body porta
+   la classe "grande" (la stessa che app.js già mette e toglie sul bottone
+   "espandi/riduci": nessuna coppia serviva per questo) — Grafico si costruisce
+   da solo, dentro il contenitore del canvas, una colonna a destra con una riga
+   per ogni oggetto acceso ADESSO (chi, che azione, da quando) e la legenda dei
+   colori dei tipi. Le righe si accendono/spengono con le stesse regole delle
+   sfere (stessa dissolvenza morbida). Passare sopra una riga illumina il suo
+   punto nella mappa; passare sopra un punto illumina la sua riga. Da piccolo
+   la colonna non c'è e non ruba spazio.
 
    LE REGOLE DEL DISEGNO SONO QUELLE DELLA PAGINA DI PARTENZA, corrette a mano
    una alla volta: sono ricopiate qui come stanno e non vanno reinventate.
@@ -869,7 +886,14 @@ const Grafico = (function () {
         pensa: vecchio ? vecchio.pensa : 0,
         riflesso: 0,
         chi: vecchio ? vecchio.chi : null,
-        az: vecchio ? vecchio.az : null
+        az: vecchio ? vecchio.az : null,
+        // per la colonna delle descrizioni: l'ultima sessione/azione VISTE
+        // (restano scritte anche mentre la luce si spegne piano, cosi' la riga
+        // non perde senso a meta' dissolvenza) e da quando dura l'accensione
+        // in corso (vedi accendi())
+        chiUltimo: vecchio ? vecchio.chiUltimo : null,
+        azUltimo: vecchio ? vecchio.azUltimo : null,
+        dal: vecchio ? vecchio.dal : 0
       };
       // LA TAGLIA DIPENDE SOLO DAI COLLEGAMENTI, con la radice quadrata perché
       // l'occhio giudica l'area.
@@ -907,27 +931,48 @@ const Grafico = (function () {
   let rotY = 0, rotX = -0.2, fermoFino = 0;
   let trascina = false, ux0 = 0, uy0 = 0;
   let anim = null, ultimo = 0, sospeso = false, contaFotogrammi = 0;
+  let ULTIMA_P = [];            // l'ultima proiezione disegnata: serve al hit-test del mouse
 
   const GRAVITA = { sparso: 0.006, tondo: 0.012, compatto: 0.022 };
   const PR = 560;                              // prospettiva
 
   /* ----------------------------------------------------------------------
-     IL RESPIRO DEL PARLATO (Grafico.voce / voceFine)
-     La nuvola INTERA pulsa a tempo con la voce — non le singole sfere, la
-     taglia di una sfera resta quella dei collegamenti e non si tocca qui.
-     'parla': pulsa verso FUORI (si allarga e torna). 'ascolta': stessa
-     pulsazione ma verso DENTRO (si stringe e torna). Segue il RITMO vero:
-     voceLivello insegue voceBersaglio (l'ultimo campione arrivato da fuori)
-     con un po' d'inerzia (VOCE_TAU), non un seno a frequenza fissa — così
-     i campioni a scatti diventano un respiro fluido. Tocca SOLO la scala
-     della POSIZIONE in proietta(), mai SCsfere: la taglia resta intatta.
+     IL BARICENTRO DELLA NUVOLA
+     Il respiro del parlato (qui sotto) sposta i punti rispetto al CENTRO VERO
+     della nuvola, non rispetto allo zero fisso degli assi: si ricalcola ogni
+     fotogramma, prima di disegnare, perché la nuvola si muove sotto le forze.
      -------------------------------------------------------------------- */
-  const VOCE_AMPIEZZA = 0.08;   // ~8% della dimensione: contenuto, elegante
+  let CENTRO_X = 0, CENTRO_Y = 0, CENTRO_Z = 0;
+  function aggiornaBaricentro() {
+    const n = NODI.length;
+    if (!n) { CENTRO_X = CENTRO_Y = CENTRO_Z = 0; return; }
+    let sx = 0, sy = 0, sz = 0;
+    for (let i = 0; i < n; i++) { sx += NODI[i].x; sy += NODI[i].y; sz += NODI[i].z; }
+    CENTRO_X = sx / n; CENTRO_Y = sy / n; CENTRO_Z = sz / n;
+  }
+
+  /* ----------------------------------------------------------------------
+     IL RESPIRO DEL PARLATO (Grafico.voce / voceFine)
+     Non è uno zoom della proiezione: OGNI PUNTO si sposta lungo il raggio che
+     lo unisce al BARICENTRO della nuvola (sopra), in 3D e prima della
+     rotazione — così l'arco si allunga e si accorcia insieme al punto, con la
+     prospettiva vera (i punti vicini si spostano di più sullo schermo di
+     quelli lontani, non tutti della stessa quantità). 'parla': i punti si
+     allontanano dal baricentro e tornano. 'ascolta': si avvicinano e tornano.
+     Segue il RITMO vero: voceLivello insegue voceBersaglio (l'ultimo campione
+     arrivato da fuori) con un po' d'inerzia (VOCE_TAU), non un seno a
+     frequenza fissa — così i campioni a scatti diventano un respiro fluido,
+     mai un rimbalzo. La TAGLIA delle sfere non la vede mai: proietta() separa
+     apposta la proiezione "vera" (taglia, profondità, ordine — sempre ferma)
+     da quella "respirata" (solo la posizione X,Y sullo schermo).
+     -------------------------------------------------------------------- */
+  const VOCE_AMPIEZZA = 0.07;   // ~7% del raggio: contenuto, elegante (5–8% chiesto)
   const VOCE_TAU = 0.15;        // secondi: quanto rapida insegue il livello vero
   let voceChi = null;           // 'parla' | 'ascolta' | null (nessuno: fermo)
   let voceBersaglio = 0;        // ultimo livello 0..1 arrivato da fuori
   let voceLivello = 0;          // valore inseguito, con inerzia
-  let VOCE_SCALA = 1;           // ricalcolato una volta per fotogramma, usato in proietta()
+  let VOCE_SCALA = 1;           // fattore di respiro (1 = fermo), ricalcolato una volta per
+                                 // fotogramma, usato in proietta() sulla posizione di ogni punto
 
   /* ----------------------------------------------------------------------
      INQUADRATURA
@@ -1002,14 +1047,29 @@ const Grafico = (function () {
      -------------------------------------------------------------------- */
   function proietta(n) {
     const cyy = Math.cos(rotY), syy = Math.sin(rotY);
-    const x = n.x * cyy - n.z * syy, z1 = n.x * syy + n.z * cyy;
     const cxx = Math.cos(rotX), sxx = Math.sin(rotX);
+
+    // la proiezione VERA (non respirata): decide taglia, profondità e ordine
+    // di disegno. Il respiro non la deve toccare, altrimenti le sfere
+    // cambierebbero taglia mentre ATHENA parla o ascolta — vietato.
+    const x = n.x * cyy - n.z * syy, z1 = n.x * syy + n.z * cyy;
     const y = n.y * cxx - z1 * sxx, z = n.y * sxx + z1 * cxx;
     const s = PR / (PR - z * 0.9);
-    // il respiro del parlato tocca SOLO la scala della posizione: la taglia
-    // delle sfere (SCsfere, in disegna) non la vede e resta quella di sempre
-    const scPulsata = SC * VOCE_SCALA;
-    return { X: cx + x * scPulsata * s, Y: cy + y * scPulsata * s, z: z, s: s };
+
+    // il respiro: il punto si sposta lungo il raggio che lo unisce al
+    // baricentro (CENTRO_X/Y/Z), IN 3D e prima della rotazione — quando
+    // VOCE_SCALA=1 (fermo) ex,ey,ez tornano identici a n.x,n.y,n.z e questa
+    // proiezione "respirata" coincide esattamente con quella vera qui sopra.
+    const ex = CENTRO_X + (n.x - CENTRO_X) * VOCE_SCALA;
+    const ey = CENTRO_Y + (n.y - CENTRO_Y) * VOCE_SCALA;
+    const ez = CENTRO_Z + (n.z - CENTRO_Z) * VOCE_SCALA;
+    const rx = ex * cyy - ez * syy, rz1 = ex * syy + ez * cyy;
+    const ry = ey * cxx - rz1 * sxx, rz = ey * sxx + rz1 * cxx;
+    const rs = PR / (PR - rz * 0.9);
+
+    // X,Y sullo schermo vengono dal punto RESPIRATO; z e s (taglia, profondità,
+    // ordine) restano quelli della proiezione VERA, sempre fermi
+    return { X: cx + rx * SC * rs, Y: cy + ry * SC * rs, z: z, s: s };
   }
 
   /* ----------------------------------------------------------------------
@@ -1082,8 +1142,13 @@ const Grafico = (function () {
     // RIQUADRO_PER_UNITA). Si calcola una volta per fotogramma, non per sfera.
     const SCsfere = Math.max(SC, Math.min(PAVIMENTO_MASSIMO, Math.min(L, A) / RIQUADRO_PER_UNITA));
 
+    // il baricentro va ricalcolato PRIMA di proiettare: il respiro del
+    // parlato (dentro proietta()) sposta i punti rispetto a questo centro
+    aggiornaBaricentro();
+
     ctx.clearRect(0, 0, L, A);
     const P = NODI.map(proietta);
+    ULTIMA_P = P;   // serve al hit-test del mouse per la colonna delle descrizioni
 
     // gli archi, dal più spento al più vivo e dal più lontano al più vicino
     ARCHI.map(a => ({ a: a, zz: (P[a.a].z + P[a.b].z) / 2 }))
@@ -1114,7 +1179,7 @@ const Grafico = (function () {
       });
 
     // le sfere, dalla più lontana alla più vicina
-    NODI.map((n, i) => ({ n: n, p: P[i] })).sort((u, v) => u.p.z - v.p.z).forEach(({ n, p }) => {
+    NODI.map((n, i) => ({ n: n, p: P[i], i: i })).sort((u, v) => u.p.z - v.p.z).forEach(({ n, p, i }) => {
       // profondità: sfumatura CONTINUA, mai un interruttore su z
       const prof = 0.34 + 0.66 * (0.5 + 0.5 * Math.max(-1, Math.min(1, p.z / 210)));
       const resp = n.pensa > 0 ? (0.42 + 0.30 * Math.sin(ora / 700)) * n.pensa : 0;
@@ -1122,11 +1187,16 @@ const Grafico = (function () {
       const base = PALETTE.get(n.tp) || GRIGIO3;
 
       if (luce > 0.02) {
-        // la luce dell'attività è BIANCA, mai del colore del tipo — un po'
-        // più fine di prima: meno raggio, meno alone, resta uno strumento
-        const R2 = rr + 10 * luce * p.s;
+        // la luce dell'attività è BIANCA, mai del colore del tipo — SOLO
+        // ALONE, mai un anello netto: quando è appena accesa è stretta e
+        // decisa (spargimento basso), e mentre la sessione lascia l'oggetto
+        // e la luce cala si allarga e perde nitidezza (più tappe, più
+        // sfumate) — si dissolve come una nebbia, non si spegne a scatti.
+        const spargimento = 6 + 15 * (1 - luce);
+        const R2 = rr + spargimento * p.s;
         const g = ctx.createRadialGradient(p.X, p.Y, 0, p.X, p.Y, R2);
-        g.addColorStop(0, 'rgba(255,255,255,' + (0.24 * luce * prof) + ')');
+        g.addColorStop(0, 'rgba(255,255,255,' + (0.20 * luce * prof) + ')');
+        g.addColorStop(0.4, 'rgba(255,255,255,' + (0.09 * luce * prof) + ')');
         g.addColorStop(1, 'rgba(255,255,255,0)');
         ctx.fillStyle = g; ctx.beginPath(); ctx.arc(p.X, p.Y, R2, 0, 6.283); ctx.fill();
       }
@@ -1173,6 +1243,13 @@ const Grafico = (function () {
         ctx.fillStyle = 'rgba(255,255,255,' + ((luce - 0.5) * 1.8) + ')';
         ctx.fillText(n.nome, p.X, p.Y - rr - 5);
       }
+      // colonna delle descrizioni (da ingrandito): passando sopra la sua riga
+      // (o sopra il punto stesso) il punto si illumina con un anello netto —
+      // qui SI vuole un anello, è un puntatore, non l'alone dell'attività
+      if (colonnaVisibile && i === hoverAttivo) {
+        ctx.beginPath(); ctx.arc(p.X, p.Y, rr + 5, 0, 6.283);
+        ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = 1.2; ctx.stroke();
+      }
     });
   }
 
@@ -1202,6 +1279,7 @@ const Grafico = (function () {
     // la rotazione resta ORARIA, respiro o non respiro: qui non si tocca
     if (!trascina && ora > fermoFino) rotY += 0.055 * dt;
     disegna(ora);
+    aggiornaRacconto(ora);
   }
 
   /* ----------------------------------------------------------------------
@@ -1213,13 +1291,205 @@ const Grafico = (function () {
     trascina = true; ux0 = e.clientX; uy0 = e.clientY;
     if (tela.setPointerCapture) { try { tela.setPointerCapture(e.pointerId); } catch (x) { /* niente */ } }
   }
-  function su() { trascina = false; fermoFino = performance.now() + 2000; }
+  function su() { trascina = false; fermoFino = performance.now() + 2000; hoverAttivo = -1; }
   function muovi(e) {
-    if (!trascina) return;
-    rotY += (e.clientX - ux0) * 0.006;
-    rotX = Math.max(-1.2, Math.min(1.2, rotX + (e.clientY - uy0) * 0.005));
-    ux0 = e.clientX; uy0 = e.clientY;
-    fermoFino = performance.now() + 2000;
+    if (trascina) {
+      rotY += (e.clientX - ux0) * 0.006;
+      rotX = Math.max(-1.2, Math.min(1.2, rotX + (e.clientY - uy0) * 0.005));
+      ux0 = e.clientX; uy0 = e.clientY;
+      fermoFino = performance.now() + 2000;
+      return;
+    }
+    // non si sta trascinando: cerca il punto sotto il mouse, per illuminare
+    // la sua riga nella colonna delle descrizioni (solo se è visibile)
+    if (!colonnaVisibile || !ULTIMA_P.length) return;
+    const r = tela.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
+    let migliore = 240, trovato = -1;   // ~15,5px di raggio (240 ≈ 15,5²)
+    for (let k = 0; k < ULTIMA_P.length; k++) {
+      const p = ULTIMA_P[k];
+      if (!p) continue;
+      const dx = p.X - mx, dy = p.Y - my, d2 = dx * dx + dy * dy;
+      if (d2 < migliore) { migliore = d2; trovato = k; }
+    }
+    hoverAttivo = trovato;
+  }
+
+  /* ----------------------------------------------------------------------
+     LA COLONNA DELLE DESCRIZIONI (da ingrandito)
+
+     Compare a destra SOLO quando il grafico è espanso — la stessa classe
+     "grande" che app.js già mette/toglie su document.body col bottone
+     espandi/riduci (vedi guscio.html): nessuna coppia serve, ci si limita a
+     leggerla. E solo se c'è davvero spazio (LARGHEZZA_RACCONTO): da piccolo,
+     o da grande su uno schermo stretto, la colonna non c'è e non ruba nulla.
+
+     I dati sono quelli che accendi() ha già messo sui nodi (chi, azione, da
+     quando): non serve nessuna chiamata in più da app.js. Una riga per
+     oggetto acceso, non per sessione — così si legge "chi fa cosa dove",
+     esattamente come chiesto. Le righe si accendono/spengono con la STESSA
+     luce (n.acceso/n.pensa) delle sfere, quindi con la stessa dissolvenza
+     morbida: anche a sessione finita restano scritte (chiUltimo/azUltimo)
+     finché la luce non è del tutto spenta.
+
+     Il contenuto si ricostruisce ogni RACCONTO_OGNI_MS (non ogni fotogramma:
+     sarebbe solo spesa, la colonna non deve girare a 60 fps) con una
+     transizione CSS che ammorbidisce il passo. L'evidenziazione incrociata
+     (riga <-> punto) invece si sincronizza OGNI fotogramma, è a costo quasi
+     zero (un giro sulle righe già disegnate).
+     -------------------------------------------------------------------- */
+  const LARGHEZZA_RACCONTO = 620;     // sotto, niente colonna anche se "grande"
+  const LARGHEZZA_COLONNA = 236;      // px: spazio tolto al canvas quando compare
+  const RACCONTO_OGNI_MS = 280;
+
+  let COLONNA = null, RIGHE_EL = null, LEGENDA_EL = null;
+  let colonnaVisibile = false;
+  let hoverAttivo = -1;                // indice nodo evidenziato, da riga O da punto
+  let ultimoRendRacconto = 0;
+
+  const NOMI_TIPO = { w: 'workflow', t: 'tabella', n: 'nodo', e: 'edge', o: 'Odoo', m: 'memoria', g: 'regola' };
+  const NOMI_AZIONE = { legge: 'legge', scrive: 'scrive', pensa: 'ci sta pensando' };
+  const nomeTipo = tp => NOMI_TIPO[tp] || tp;
+  const nomeAzione = az => NOMI_AZIONE[az] || escapeHtml(az);
+
+  // schermatura: qui arriva testo che viene dal database (nomi di oggetti,
+  // nomi di sessione), va sempre schermato prima di finire nell'HTML
+  function escapeHtml(s) {
+    return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+  function formattaDa(ms) {
+    const s = Math.max(0, Math.round(ms / 1000));
+    if (s < 60) return s + 's';
+    return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+  }
+
+  // lo stile vive qui, non in guscio.html: un solo <style> per pagina, con
+  // classi tutte prefissate "gr-" per non toccare nient'altro
+  function iniettaStile() {
+    if (document.getElementById('grafico-racconto-stile')) return;
+    const s = document.createElement('style');
+    s.id = 'grafico-racconto-stile';
+    s.textContent =
+      '.gr-colonna{position:absolute;top:0;right:0;bottom:0;width:' + LARGHEZZA_COLONNA + 'px;' +
+        'max-width:42%;display:flex;flex-direction:column;background:rgba(10,14,21,.90);' +
+        'border-left:1px solid rgba(255,255,255,.09);font-family:"IBM Plex Mono",ui-monospace,monospace;' +
+        'opacity:0;pointer-events:none;transition:opacity .4s ease}' +
+      '.gr-colonna.gr-visibile{opacity:1;pointer-events:auto}' +
+      '.gr-righe{flex:1 1 auto;overflow-y:auto;padding:10px 9px 4px}' +
+      '.gr-riga{display:flex;gap:7px;padding:5px 4px;border-radius:5px;' +
+        'transition:opacity .5s linear,background .15s}' +
+      '.gr-riga.gr-evidenziata{background:rgba(255,255,255,.09)}' +
+      '.gr-pallino{width:7px;height:7px;border-radius:50%;flex:0 0 auto;margin-top:4px}' +
+      '.gr-nome{font-size:11px;color:#C9D2DE;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
+      '.gr-meta{font-size:10px;color:#7A8798;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
+      '.gr-meta b{color:#9FB0C4;font-weight:500}' +
+      '.gr-vuota{font-size:11px;color:#4A5566;font-style:italic;padding:8px 4px;margin:0}' +
+      '.gr-legenda{flex:0 0 auto;display:flex;flex-wrap:wrap;gap:6px 10px;padding:8px 9px;' +
+        'border-top:1px solid rgba(255,255,255,.09);font-size:10px;color:#7A8798}' +
+      '.gr-lg{display:flex;align-items:center;gap:4px;white-space:nowrap}' +
+      '.gr-lg i{width:7px;height:7px;border-radius:50%;display:inline-block;flex:0 0 auto}';
+    document.head.appendChild(s);
+  }
+
+  // crea la colonna dentro il contenitore del canvas: una volta sola per
+  // ogni avvia(). Delegazione sulle righe (un solo ascoltatore, non uno a
+  // riga: le righe si ricostruiscono spesso, gli ascoltatori delegati no)
+  function creaColonna() {
+    if (COLONNA || !tela) return;
+    iniettaStile();
+    const contenitore = tela.parentElement;
+    if (!contenitore) return;
+    if (getComputedStyle(contenitore).position === 'static') contenitore.style.position = 'relative';
+    COLONNA = document.createElement('div');
+    COLONNA.className = 'gr-colonna';
+    COLONNA.innerHTML = '<div class="gr-righe"></div><div class="gr-legenda"></div>';
+    contenitore.appendChild(COLONNA);
+    RIGHE_EL = COLONNA.querySelector('.gr-righe');
+    LEGENDA_EL = COLONNA.querySelector('.gr-legenda');
+    RIGHE_EL.addEventListener('mouseover', e => {
+      const r = e.target.closest('.gr-riga');
+      if (r) hoverAttivo = parseInt(r.dataset.i, 10);
+    });
+    RIGHE_EL.addEventListener('mouseleave', () => { hoverAttivo = -1; });
+  }
+  function distruggiColonna() {
+    if (COLONNA && COLONNA.parentElement) COLONNA.parentElement.removeChild(COLONNA);
+    COLONNA = null; RIGHE_EL = null; LEGENDA_EL = null; colonnaVisibile = false;
+  }
+
+  // decide se la colonna ci sta e le toglie/ridà lo spazio al canvas.
+  // Il canvas ha "inset:0" da CSS (guscio.html): uno stile inline su "right"
+  // vince comunque, quindi si può restringere da qui senza toccare l'HTML.
+  function aggiornaColonna() {
+    if (!COLONNA || !tela) return;
+    const contenitore = tela.parentElement;
+    const largo = contenitore ? contenitore.getBoundingClientRect().width : 0;
+    const vuoi = document.body.classList.contains('grande') && largo >= LARGHEZZA_RACCONTO;
+    if (vuoi !== colonnaVisibile) {
+      colonnaVisibile = vuoi;
+      COLONNA.classList.toggle('gr-visibile', colonnaVisibile);
+      tela.style.right = colonnaVisibile ? LARGHEZZA_COLONNA + 'px' : '';
+      misura();   // il canvas ha cambiato misura: ricalcola subito l'inquadratura
+    }
+  }
+
+  function aggiornaLegenda() {
+    if (!LEGENDA_EL) return;
+    const voci = Array.from(PALETTE.entries()).map(([tp, rgb]) =>
+      '<span class="gr-lg"><i style="background:' + str(rgb, 1) + '"></i>' + escapeHtml(nomeTipo(tp)) + '</span>');
+    voci.push('<span class="gr-lg"><i style="background:#fff"></i>al lavoro</span>');
+    voci.push('<span class="gr-lg"><i style="background:transparent;border:1px solid rgba(190,215,255,.85)"></i>ci pensa</span>');
+    LEGENDA_EL.innerHTML = voci.join('');
+  }
+
+  // il contenuto vero e proprio: una riga per oggetto acceso ADESSO (o in
+  // coda di raffreddamento). Richiamata poco spesso (RACCONTO_OGNI_MS): fra
+  // una ricostruzione e l'altra si sincronizza solo l'evidenziazione, che è
+  // gratis, sulle righe già presenti nel DOM.
+  function aggiornaRacconto(ora) {
+    if (!COLONNA) return;
+    if (ora - ultimoRendRacconto < RACCONTO_OGNI_MS) {
+      if (RIGHE_EL) {
+        const figli = RIGHE_EL.children;
+        for (let k = 0; k < figli.length; k++) {
+          const el = figli[k];
+          if (el.dataset && el.dataset.i !== undefined) {
+            el.classList.toggle('gr-evidenziata', parseInt(el.dataset.i, 10) === hoverAttivo);
+          }
+        }
+      }
+      return;
+    }
+    ultimoRendRacconto = ora;
+    aggiornaColonna();
+    if (!colonnaVisibile) return;
+
+    const attivi = [];
+    NODI.forEach((n, i) => {
+      const luce = Math.max(n.acceso || 0, n.pensa || 0);
+      if (luce > 0.02 && (n.chi || n.chiUltimo)) attivi.push({ n: n, i: i, luce: luce });
+    });
+    attivi.sort((a, b) => b.luce - a.luce);
+
+    if (!attivi.length) {
+      RIGHE_EL.innerHTML = '<p class="gr-vuota">nessuna sessione al lavoro</p>';
+    } else {
+      RIGHE_EL.innerHTML = attivi.map(({ n, i, luce }) => {
+        const base = PALETTE.get(n.tp) || GRIGIO3;
+        const chiMostrato = n.chi || n.chiUltimo || '—';
+        const azMostrata = n.az || n.azUltimo || 'legge';
+        const pensa = azMostrata === 'pensa';
+        const pallino = pensa
+          ? 'background:transparent;border:1px solid rgba(190,215,255,.85)'
+          : 'background:' + (n.chi ? '#fff' : str(base, 1));
+        const da = n.dal ? ' · da ' + formattaDa(ora - n.dal) : '';
+        return '<div class="gr-riga" data-i="' + i + '" style="opacity:' + Math.max(0.2, Math.min(1, luce)).toFixed(2) + '">'
+          + '<i class="gr-pallino" style="' + pallino + '"></i>'
+          + '<div><div class="gr-nome">' + escapeHtml(n.nome) + '</div>'
+          + '<div class="gr-meta"><b>' + escapeHtml(chiMostrato) + '</b> · ' + nomeAzione(azMostrata) + da + '</div>'
+          + '</div></div>';
+      }).join('');
+    }
+    aggiornaLegenda();
   }
 
   /* ----------------------------------------------------------------------
@@ -1264,6 +1534,8 @@ const Grafico = (function () {
         tela.removeEventListener('pointerup', su);
         tela.removeEventListener('pointerleave', su);
         tela.removeEventListener('pointermove', muovi);
+        tela.style.right = '';
+        distruggiColonna();
       }
       if (osservatore) { osservatore.disconnect(); osservatore = null; }
       if (anim) { window.cancelAnimationFrame(anim); anim = null; }
@@ -1273,6 +1545,8 @@ const Grafico = (function () {
       NODI = []; ARCHI = []; PER_CHIAVE = new Map(); PER_NOME = new Map(); PALETTE = new Map();
       SC = 0; alpha = 1; rotY = 0; rotX = -0.2; sospeso = false; contaFotogrammi = 0;
       voceChi = null; voceBersaglio = 0; voceLivello = 0; VOCE_SCALA = 1;
+      CENTRO_X = 0; CENTRO_Y = 0; CENTRO_Z = 0; ULTIMA_P = [];
+      hoverAttivo = -1; ultimoRendRacconto = 0;
 
       applicaDato(dato);
       misura();
@@ -1290,6 +1564,8 @@ const Grafico = (function () {
         window.addEventListener('resize', misura);
       }
 
+      creaColonna();
+
       ultimo = performance.now();
       anim = window.requestAnimationFrame(fotogramma);
       return this;
@@ -1306,7 +1582,14 @@ const Grafico = (function () {
        azione: 'legge' | 'scrive' | 'pensa'. Chi non compare nell'elenco si
        spegne piano da solo; gli oggetti collegati si accendono di riflesso. */
     accendi: function (elenco) {
-      NODI.forEach(n => { n.chi = null; n.az = null; });
+      // chi era acceso PRIMA di questa chiamata: serve a decidere se
+      // un'accensione è "nuova" (per il "da quando" della colonna) e a
+      // ricordare chi/azione anche mentre la luce si spegne piano dopo
+      const precedente = NODI.map(n => n.chi);
+      NODI.forEach(n => {
+        if (n.chi) { n.chiUltimo = n.chi; n.azUltimo = n.az; }
+        n.chi = null; n.az = null;
+      });
       (elenco || []).forEach(v => {
         if (!v) return;
         const i = indiceDi(v.oggetto);
@@ -1314,6 +1597,8 @@ const Grafico = (function () {
         const n = NODI[i];
         n.chi = v.sessione || '—';
         n.az = v.azione || 'legge';
+        // sessione nuova (o oggetto appena preso in mano): riparte il conteggio
+        if (precedente[i] !== n.chi) n.dal = performance.now();
         if (n.az === 'pensa') n.pensa = 1; else n.acceso = 1;
       });
       return this;
