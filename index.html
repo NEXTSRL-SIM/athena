@@ -175,6 +175,24 @@
     border-color:var(--bordo);font-family:var(--mono)}
   #sessioniFascia.aperta .sess.vuoto{min-width:0}
 
+  /* ── il riquadro dei permessi ─────────────────────────────────────────────
+     Le richieste di autorizzazione delle sessioni che lavorano compaiono
+     qui: fuori dalle due schede, cosi' si vedono in conversazione come in
+     flusso, e sopra la conversazione perche' e' la prima cosa che Sante
+     deve vedere quando c'e' da rispondere si o no. A coda vuota si fa
+     sottile e non grida: il resto della veste — schede, bottoni, colori
+     del rischio — lo mette il modulo Permessi stesso. */
+  #permessiBox{flex:0 0 auto;padding:12px 16px;border-bottom:1px solid var(--bordo);
+    background:var(--fondo2)}
+  #permessiBox.pm-scarico{padding:4px 16px;border-bottom-color:transparent}
+  /* il pallino vicino al titolo: il colore dell'attesa, non il blu neutro
+     del pallino del flusso — questo non dice "hai roba nuova da leggere",
+     dice "c'e' da decidere". Pulsa piano apposta, per non perdersi la
+     richiesta; chi non vuole animazioni non la vede (regola generale
+     più sotto, sotto prefers-reduced-motion). */
+  #permessiConta{background:var(--attesa);color:#1A1206;
+    animation:respira 1.6s ease-in-out infinite}
+
   /* ── il corpo: le due schede vivono qui, una alla volta ──────────────────── */
   main{flex:1;min-height:0;display:flex;flex-direction:column}
   main > section{flex:1;min-height:0;display:flex;flex-direction:column}
@@ -432,6 +450,8 @@
 
 <header>
   <h1>ATHENA</h1>
+  <span class="conta" id="permessiConta" hidden
+        title="autorizzazioni in attesa: rispondi nel riquadro qui sotto">0</span>
   <span class="sessione" id="nomeSessione">—</span>
 
   <div class="linguette" role="tablist" aria-label="Schede">
@@ -468,6 +488,12 @@
     <span class="da-chiusa">tutte</span><span class="da-aperta">stringi</span>
   </button>
 </div>
+
+<!-- ═══ IL RIQUADRO DEI PERMESSI ═══════════════════════════════════════════
+     Le richieste di autorizzazione delle sessioni che lavorano stanno qui,
+     sempre visibili sopra la conversazione: Sante non deve andare altrove
+     per rispondere. Nasce vuoto, lo riempie Permessi.monta() in app.js. -->
+<div id="permessiBox"></div>
 
 <main>
 
@@ -1228,6 +1254,11 @@ const Grafico = (function () {
                                   e ritorna quanti ne ha trovati (0 = niente)
      Vetrina.vuota()              svuota
      Vetrina.quanti()             quanti pezzi ci sono
+     Vetrina.artefatti(elenco)    ridisegna l'elenco degli artefatti (bottone
+                                  "artefatti" nella barra) da conv_pagina_artefatti:
+                                  ogni chiamata ricostruisce tutto da zero, mai doppioni
+     Vetrina.allegati(m)          mostra gli `allegati` di una battuta come un pezzo
+                                  JSON colorato; niente se sono vuoti o assenti
      Vetrina.onCambio = f(indice, totale)
 
        ATTENZIONE a onCambio: `indice` è il NUMERO MOSTRATO, da 1 a totale —
@@ -1266,8 +1297,17 @@ const Vetrina = (function () {
   let ingrandita = false;
   let ecoTimer = null;
 
+  /* GLI ARTEFATTI — una lista a parte, che non c'entra con `pezzi`.
+     `pezzi` sono i blocchi tirati fuori dalla chat (Vetrina.dai); `artefatti`
+     arrivano da fuori gia' pronti (Vetrina.artefatti) e vivono in una vista
+     separata dentro lo stesso riquadro: si passa dall'una all'altra con un
+     bottone nella barra, non si mescolano gli stati. */
+  let artefatti = [];         // l'elenco cosi' come arriva, gia' ordinato
+  let vistaArtefatti = false; // false = si vede `pezzi` (come sempre), true = si vede `artefatti`
+  let artApertoId = null;     // id dell'artefatto aperto, o null = si vede l'elenco
+
   /* le parti del riquadro, riempite da monta() */
-  let elTitolo, elGenere, elOrigine, elConta, elCorpo, elEco, btnPrec, btnSucc, btnGrande;
+  let elTitolo, elGenere, elOrigine, elConta, elCorpo, elEco, btnPrec, btnSucc, btnGrande, btnArt;
 
   /* ========================================================================
      LO SCUDO
@@ -1442,6 +1482,107 @@ const Vetrina = (function () {
   }
 
   /* ========================================================================
+     GLI ARTEFATTI — aiutanti
+
+     Stesso principio dello SCUDO: mai un pezzo di testo che arriva da fuori
+     finisce nell'HTML senza passare da `scudo`. Qui in piu' c'e' `attributo`,
+     che serve quando il testo finisce dentro un attributo fra virgolette
+     (un id, un indirizzo): senza schermare anche le virgolette, un valore che
+     ne contenesse una spezzerebbe l'attributo e tutto quello che segue.
+     ====================================================================== */
+
+  function attributo(t) {
+    return scudo(t).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  /* "quando" leggibile: giorno, mese, ora e minuto. Se la data non si legge
+     (mancante o scritta male) si ritorna una stringa vuota, mai "Invalid Date"
+     a schermo. */
+  function quandoTesto(iso) {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return '';
+    return d.toLocaleString('it-IT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  }
+
+  /* piu' recente in cima. Si confronta prima per data; se le date non ci
+     sono o sono uguali, decide l'id (piu' alto = piu' nuovo). */
+  function confrontoArtefatti(a, b) {
+    const da = a && a.creato_at ? Date.parse(a.creato_at) : NaN;
+    const db = b && b.creato_at ? Date.parse(b.creato_at) : NaN;
+    if (!isNaN(da) && !isNaN(db) && da !== db) return db - da;
+    const ia = (a && Number(a.id)) || 0;
+    const ib = (b && Number(b.id)) || 0;
+    return ib - ia;
+  }
+
+  function trovaArtefatto(id) {
+    for (let i = 0; i < artefatti.length; i++) {
+      if (artefatti[i] && String(artefatti[i].id) === String(id)) return artefatti[i];
+    }
+    return null;
+  }
+
+  /* una riga dell'elenco: solo testo schermato, mai HTML crudo */
+  function rigaArtefatto(a) {
+    const titolo = a && a.titolo ? String(a.titolo) : ('artefatto #' + (a && a.id));
+    const quando = a && a.creato_at ? quandoTesto(a.creato_at) : '';
+    const genere = a && a.genere ? String(a.genere) : '';
+    const sessione = a && a.sessione ? String(a.sessione) : '';
+    const perche = a && a.perche ? taglia(String(a.perche), 90) : '';
+    return '<button type="button" class="vt-art-item" data-art-id="' + attributo(a && a.id) + '">' +
+      '<span class="vt-art-riga1">' +
+        '<span class="vt-art-nome">' + scudo(titolo) + '</span>' +
+        '<span class="vt-art-quando">' + scudo(quando) + '</span>' +
+      '</span>' +
+      '<span class="vt-art-riga2">' +
+        (genere ? '<span class="vt-art-badge">' + scudo(genere) + '</span>' : '') +
+        (sessione ? '<span class="vt-art-sessione">' + scudo(sessione) + '</span>' : '') +
+      '</span>' +
+      (perche ? '<span class="vt-art-perche">' + scudo(perche) + '</span>' : '') +
+      '</button>';
+  }
+
+  function elencoArtefattiHtml() {
+    if (!artefatti.length) return '<p class="vt-vuoto">nessun artefatto per ora</p>';
+    return '<div class="vt-art-lista">' + artefatti.map(rigaArtefatto).join('') + '</div>';
+  }
+
+  /* il contenuto di un artefatto aperto: PRIMA lo scudo, POI il colore —
+     la stessa regola di disegnaCorpo, non si inverte mai. Il link, se c'e',
+     si mostra solo se comincia per http/https: un indirizzo scritto male
+     (o un "javascript:" messo li' apposta) resta testo, non diventa cliccabile. */
+  function dettaglioArtefattoHtml(a) {
+    const titolo = a.titolo ? String(a.titolo) : ('artefatto #' + a.id);
+    const genere = a.genere ? String(a.genere) : '';
+    const lingua = a.linguaggio ? String(a.linguaggio) : '';
+    const sessione = a.sessione ? String(a.sessione) : '';
+    const quando = a.creato_at ? quandoTesto(a.creato_at) : '';
+    const perche = a.perche ? String(a.perche) : '';
+    const contenuto = a.contenuto == null ? '' : String(a.contenuto);
+    const schermato = scudo(contenuto);
+    const colorato = colora(schermato, lingua);
+
+    let link = '';
+    if (a.indirizzo) {
+      const ind = String(a.indirizzo);
+      link = /^https?:\/\//i.test(ind)
+        ? '<a class="vt-art-apri" href="' + attributo(ind) + '" target="_blank" rel="noopener">apri ↗</a>'
+        : '<p class="vt-art-desc">' + scudo(ind) + '</p>';
+    }
+
+    return '<button type="button" class="vt-art-back">‹ elenco</button>' +
+      '<p class="vt-art-cap">' + scudo(titolo) + '</p>' +
+      '<div class="vt-art-meta">' +
+        (genere ? '<span class="vt-art-badge">' + scudo(genere) + (lingua ? ' · ' + scudo(lingua) : '') + '</span>' : '') +
+        (sessione ? '<span>' + scudo(sessione) + '</span>' : '') +
+        (quando ? '<span>' + scudo(quando) + '</span>' : '') +
+      '</div>' +
+      (perche ? '<p class="vt-art-desc">' + scudo(perche) + '</p>' : '') +
+      link +
+      '<pre class="vt-pre"><code>' + colorato + '</code></pre>';
+  }
+
+  /* ========================================================================
      IL CSS
      Se lo inietta il modulo, una volta sola, con tutte le classi prefissate
      `vt-`: la pagina che ospita non deve sapere niente e non deve litigare.
@@ -1520,7 +1661,45 @@ const Vetrina = (function () {
     '  opacity:0;transition:opacity .18s}',
     '.vt-eco-vedi{opacity:1}',
     /* la copia fallita non si annuncia in verde */
-    '.vt-eco-male{color:var(--rosso,#D4736A);border-color:var(--rosso,#D4736A)}'
+    '.vt-eco-male{color:var(--rosso,#D4736A);border-color:var(--rosso,#D4736A)}',
+
+    /* il bottone premuto (la vista artefatti attiva) si vede acceso */
+    '.vt-btn[aria-pressed="true"]{color:var(--luce,#fff);border-color:var(--blu,#4C8DF6);',
+    '  background:rgba(76,141,246,.14)}',
+
+    /* ── ARTEFATTI: l'elenco ──────────────────────────────────────────── */
+    '.vt-art-lista{padding:2px 0}',
+    '.vt-art-item{display:block;width:100%;text-align:left;font:inherit;background:transparent;',
+    '  border:none;border-bottom:1px solid var(--bordo,#1E2836);color:inherit;cursor:pointer;',
+    '  padding:9px 14px}',
+    '.vt-art-item:last-child{border-bottom:none}',
+    '.vt-art-item:hover{background:var(--fondo2,#0E1420)}',
+    '.vt-art-riga1{display:flex;align-items:baseline;gap:8px}',
+    '.vt-art-nome{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;',
+    '  font-weight:600;font-size:12.5px;color:var(--testo,#C9D2DE)}',
+    '.vt-art-quando{flex:0 0 auto;font-family:var(--mono,ui-monospace,Menlo,monospace);',
+    '  font-size:10px;color:var(--fioco,#4A5566)}',
+    '.vt-art-riga2{display:flex;align-items:center;gap:6px;margin-top:3px;flex-wrap:wrap}',
+    '.vt-art-badge{font-family:var(--mono,ui-monospace,Menlo,monospace);font-size:9.5px;',
+    '  letter-spacing:.05em;text-transform:uppercase;color:var(--blu,#4C8DF6);',
+    '  border:1px solid var(--bordo,#1E2836);border-radius:4px;padding:1px 5px}',
+    '.vt-art-sessione{font-family:var(--mono,ui-monospace,Menlo,monospace);font-size:10px;',
+    '  color:var(--fioco,#4A5566);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:22ch}',
+    '.vt-art-perche{display:block;margin-top:4px;font-size:11.5px;color:var(--tenue,#7A8798);',
+    '  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+
+    /* ── ARTEFATTI: il dettaglio ──────────────────────────────────────── */
+    '.vt-art-back{font:inherit;font-size:11px;background:transparent;color:var(--tenue,#7A8798);',
+    '  border:1px solid var(--bordo,#1E2836);border-radius:5px;padding:3px 9px;cursor:pointer;',
+    '  margin:12px 0 10px 14px}',
+    '.vt-art-back:hover{color:var(--testo,#C9D2DE);border-color:#31404F}',
+    '.vt-art-cap{margin:0 14px 6px;font-size:13.5px;font-weight:600;color:var(--testo,#C9D2DE)}',
+    '.vt-art-meta{margin:0 14px 8px;display:flex;gap:9px;flex-wrap:wrap;align-items:center;',
+    '  font-size:11px;color:var(--fioco,#4A5566)}',
+    '.vt-art-desc{margin:0 14px 10px;font-size:12.5px;color:var(--tenue,#7A8798)}',
+    '.vt-art-apri{display:inline-block;margin:0 14px 10px;font-size:11.5px;color:var(--blu,#4C8DF6);',
+    '  text-decoration:none;border:1px solid rgba(76,141,246,.4);border-radius:5px;padding:3px 9px}',
+    '.vt-art-apri:hover{background:rgba(76,141,246,.12)}'
   ].join('\n');
 
   function iniettaCss() {
@@ -1537,6 +1716,19 @@ const Vetrina = (function () {
 
   function disegnaCorpo() {
     if (!elCorpo) return;
+
+    if (vistaArtefatti) {
+      /* se l'artefatto aperto e' sparito dai dati arrivati dopo (per esempio
+         un rifiuto), si torna da soli all'elenco invece di restare a
+         guardare il vuoto */
+      if (artApertoId != null) {
+        const a = trovaArtefatto(artApertoId);
+        if (a) { elCorpo.innerHTML = dettaglioArtefattoHtml(a); return; }
+        artApertoId = null;
+      }
+      elCorpo.innerHTML = elencoArtefattiHtml();
+      return;
+    }
 
     if (corrente < 0 || !pezzi[corrente]) {
       elCorpo.innerHTML = '<p class="vt-vuoto">qui compaiono il codice e le tabelle che ti mostro</p>';
@@ -1571,16 +1763,36 @@ const Vetrina = (function () {
 
   function disegnaBarra() {
     if (!radice) return;
-    const tot = pezzi.length;
-    const p = corrente >= 0 ? pezzi[corrente] : null;
 
-    elGenere.textContent = p ? (p.lingua || p.genere) : '—';
-    elTitolo.textContent = p ? p.titolo : '';
-    elOrigine.textContent = p && p.origine ? p.origine : '';
-    elConta.textContent = tot ? (corrente + 1) + ' / ' + tot : '0 / 0';
+    if (vistaArtefatti) {
+      const aperto = artApertoId != null ? trovaArtefatto(artApertoId) : null;
+      elGenere.textContent = 'artefatti';
+      elTitolo.textContent = aperto && aperto.titolo ? aperto.titolo : '';
+      elOrigine.textContent = '';
+      elConta.textContent = String(artefatti.length);
+      btnPrec.disabled = true;
+      btnSucc.disabled = true;
+    } else {
+      const tot = pezzi.length;
+      const p = corrente >= 0 ? pezzi[corrente] : null;
 
-    btnPrec.disabled = corrente <= 0;
-    btnSucc.disabled = corrente < 0 || corrente >= tot - 1;
+      elGenere.textContent = p ? (p.lingua || p.genere) : '—';
+      elTitolo.textContent = p ? p.titolo : '';
+      elOrigine.textContent = p && p.origine ? p.origine : '';
+      elConta.textContent = tot ? (corrente + 1) + ' / ' + tot : '0 / 0';
+
+      btnPrec.disabled = corrente <= 0;
+      btnSucc.disabled = corrente < 0 || corrente >= tot - 1;
+    }
+
+    /* il bottone della vista: dice sempre quanti artefatti ci sono, anche
+       mentre si guardano i pezzi della chat */
+    if (btnArt) {
+      btnArt.setAttribute('aria-pressed', vistaArtefatti ? 'true' : 'false');
+      btnArt.textContent = vistaArtefatti
+        ? '‹ pezzi'
+        : ('artefatti' + (artefatti.length ? ' (' + artefatti.length + ')' : ''));
+    }
   }
 
   function disegna() {
@@ -1682,6 +1894,8 @@ const Vetrina = (function () {
             '<button type="button" class="vt-btn vt-nav" data-vt="prec" title="precedente">‹</button>' +
             '<button type="button" class="vt-btn vt-nav" data-vt="succ" title="successivo">›</button>' +
             '<button type="button" class="vt-btn" data-vt="copia">copia</button>' +
+            '<button type="button" class="vt-btn" data-vt="artefatti" aria-pressed="false"' +
+              ' title="Gli artefatti registrati in tabella">artefatti</button>' +
             '<button type="button" class="vt-btn" data-vt="grande" aria-pressed="false">ingrandisci</button>' +
           '</span>' +
         '</div>' +
@@ -1697,15 +1911,40 @@ const Vetrina = (function () {
       btnPrec   = radice.querySelector('[data-vt="prec"]');
       btnSucc   = radice.querySelector('[data-vt="succ"]');
       btnGrande = radice.querySelector('[data-vt="grande"]');
+      btnArt    = radice.querySelector('[data-vt="artefatti"]');
 
       radice.addEventListener('click', function (ev) {
         const b = ev.target.closest ? ev.target.closest('.vt-btn') : null;
-        if (!b || !radice.contains(b)) return;
-        const che = b.getAttribute('data-vt');
-        if (che === 'prec') vaiA(corrente - 1);
-        else if (che === 'succ') vaiA(corrente + 1);
-        else if (che === 'copia') copia();
-        else if (che === 'grande') ingrandisci();
+        if (b && radice.contains(b)) {
+          const che = b.getAttribute('data-vt');
+          if (che === 'prec') vaiA(corrente - 1);
+          else if (che === 'succ') vaiA(corrente + 1);
+          else if (che === 'copia') copia();
+          else if (che === 'grande') ingrandisci();
+          else if (che === 'artefatti') {
+            vistaArtefatti = !vistaArtefatti;
+            if (!vistaArtefatti) artApertoId = null;   // si rientra sempre dall'elenco
+            disegna();
+          }
+          return;
+        }
+
+        /* dentro la vista artefatti: una riga apre il suo contenuto,
+           il bottone "‹ elenco" torna indietro. Sono dentro elCorpo, non
+           sono .vt-btn: si controllano a parte. */
+        const riga = ev.target.closest ? ev.target.closest('.vt-art-item') : null;
+        if (riga && radice.contains(riga)) {
+          artApertoId = riga.getAttribute('data-art-id');
+          disegnaBarra(); disegnaCorpo();
+          if (elCorpo) elCorpo.scrollTop = 0;
+          return;
+        }
+        const indietro = ev.target.closest ? ev.target.closest('.vt-art-back') : null;
+        if (indietro && radice.contains(indietro)) {
+          artApertoId = null;
+          disegnaBarra(); disegnaCorpo();
+          if (elCorpo) elCorpo.scrollTop = 0;
+        }
       });
 
       /* le frecce valgono solo quando il fuoco è qui dentro: la pagina che
@@ -1841,6 +2080,63 @@ const Vetrina = (function () {
 
     quanti: function () {
       return pezzi.length;
+    },
+
+    /* ----------------------------------------------------------------------
+       ARTEFATTI — riceve l'array cosi' com'e' da conv_pagina_artefatti e
+       ridisegna l'elenco da zero. Chiamarla piu' volte con gli stessi dati
+       non fa doppioni: non si accumula niente, si ricostruisce sempre tutto
+       da quello che arriva adesso. Un array vuoto (o niente) svuota
+       l'elenco e mostra la riga "nessun artefatto per ora".
+       -------------------------------------------------------------------- */
+    artefatti: function (elenco) {
+      artefatti = Array.isArray(elenco) ? elenco.slice() : [];
+      artefatti.sort(confrontoArtefatti);
+
+      /* se quello aperto non c'e' piu' fra i dati nuovi, si torna all'elenco
+         invece di restare a guardare un contenuto che non esiste piu' */
+      if (artApertoId != null && !trovaArtefatto(artApertoId)) artApertoId = null;
+
+      disegnaBarra();
+      if (vistaArtefatti) disegnaCorpo();
+      return this;
+    },
+
+    /* ----------------------------------------------------------------------
+       ALLEGATI — data una battuta con `allegati` (jsonb: un array o un
+       oggetto), la mostra come un pezzo di codice JSON colorato: si vede,
+       si legge, e passa dalla stessa strada sicura di tutto il resto
+       (scudo prima, colore dopo). Allegati vuoti o assenti: non fa niente.
+       -------------------------------------------------------------------- */
+    allegati: function (m) {
+      if (!m) return this;
+      const a = m.allegati;
+
+      let vuoto;
+      if (Array.isArray(a)) vuoto = a.length === 0;
+      else if (a && typeof a === 'object') vuoto = Object.keys(a).length === 0;
+      else vuoto = (a == null);
+      if (vuoto) return this;
+
+      let testo;
+      try { testo = JSON.stringify(a, null, 2); } catch (e) { return this; }
+      if (!testo) return this;
+
+      const n = Array.isArray(a) ? a.length
+              : (a && typeof a === 'object') ? Object.keys(a).length
+              : 1;
+      const chi = m.chi === 'sante' ? 'tu' : 'ATHENA';
+      const quando = m.at ? quandoTesto(m.at) : '';
+
+      api.aggiungi({
+        genere: 'codice',
+        lingua: 'json',
+        contenuto: testo,
+        titolo: 'allegati — ' + n + (n === 1 ? ' voce' : ' voci'),
+        quando: m.at ? new Date(m.at) : new Date(),
+        origine: chi + (quando ? ' · ' + quando : '')
+      });
+      return this;
     }
   };
 
@@ -2644,6 +2940,13 @@ const Orecchio = (function () {
   // Ogni quanto il cane da guardia controlla che il registratore sia vivo.
   const GUARDIA_MS = 1000;
 
+  // Spegnimento automatico: se il microfono e' acceso ma non arriva nessun
+  // parlato per questo tempo consecutivo, l'orecchio si spegne da solo e lo
+  // dice (vedi spegniPerSilenzio). Il conteggio si azzera a ogni rilevamento
+  // di parlato, quindi non conta il silenzio a spizzichi fra una frase e
+  // l'altra: solo un silenzio ININTERROTTO cosi' lungo.
+  const SILENZIO_MASSIMO_MS = 90000;
+
   /* ---------------------------------------------------------------------
      STATO INTERNO
      ------------------------------------------------------------------ */
@@ -2693,6 +2996,7 @@ const Orecchio = (function () {
   let sopraDa = 0;              // da quando il livello e' sopra soglia (0 = non lo e')
   let sottoDa = 0;              // da quando e' sotto soglia
   let ultimoSuonoT = 0;         // ultimo istante sopra soglia, per la guardia sul riciclo
+  let ultimoParlatoT = 0;       // ultimo istante di parlato, per lo spegnimento automatico
   let inFrase = false;
   let inizioFraseT = 0;
   let fineParlatoT = 0;         // ultimo istante di parlato dentro la frase corrente
@@ -3054,6 +3358,7 @@ const Orecchio = (function () {
 
     if (sopra) {
       ultimoSuonoT = adesso;
+      ultimoParlatoT = adesso; // azzera il conto per lo spegnimento automatico
       if (!sopraDa) sopraDa = adesso;
       sottoDa = 0;
     } else {
@@ -3066,6 +3371,14 @@ const Orecchio = (function () {
         fondo = fondo * (1 - INSEGUIMENTO_FONDO) + livello * INSEGUIMENTO_FONDO;
         aggiornaSoglia();
       }
+    }
+
+    // Silenzio ininterrotto troppo lungo: l'orecchio si spegne da solo.
+    // Non mentre la pagina parla (sospeso): li' il silenzio dell'utente e'
+    // normale, e riprendi() azzera comunque il conto quando si riascolta.
+    if (!sospeso && ultimoParlatoT && adesso - ultimoParlatoT >= SILENZIO_MASSIMO_MS) {
+      spegniPerSilenzio();
+      return;
     }
 
     // In sospensione si continua a misurare (il fondo deve restare aggiornato)
@@ -3101,6 +3414,17 @@ const Orecchio = (function () {
   function aggiornaSoglia() {
     const s = fondo * FATTORE_SOGLIA;
     soglia = Math.min(SOGLIA_MASSIMA, Math.max(SOGLIA_MINIMA, s));
+  }
+
+  // Spegnimento per silenzio: passa dalla stessa strada di ogni altro guaio
+  // (guaio() poi spegni()), cosi' chi ascolta onGuaio — gia' cablato per
+  // spegnere il microfono e scriverne il motivo — non deve sapere niente di
+  // nuovo. Se in piu' nessuno ascoltasse onGuaio, spegni() qui sotto garantisce
+  // comunque che il microfono non resti acceso e sordo per sempre.
+  function spegniPerSilenzio() {
+    guaio('Microfono spento da solo: ' + Math.round(SILENZIO_MASSIMO_MS / 1000) +
+          ' secondi senza parlato.');
+    spegni();
   }
 
   // Ricicla la registrazione durante i silenzi lunghi, per non tenere in
@@ -3248,6 +3572,27 @@ const Orecchio = (function () {
   }
 
   /* ---------------------------------------------------------------------
+     FILTRO DEL RUMORE
+     Il modello di trascrizione (scribe_v1), parlando in una stanza vuota,
+     spesso non torna silenzio ma un marcatore fra parentesi ('[risate]',
+     '[music]', '[silence]', '(rumore)'...), o una stringa vuota, o solo
+     punteggiatura. Chi consegna il testo alla chat deve scartare questi casi
+     PRIMA di scriverli a schermo e mandarli al database.
+     ------------------------------------------------------------------ */
+
+  // Vero quando, tolti i marcatori fra parentesi (quadre o tonde), la
+  // punteggiatura e gli spazi, non resta nemmeno un accenno di parola: meno
+  // di 2 caratteri fra lettere e cifre (qualunque alfabeto: \p{L} e \p{N}
+  // coprono anche le lettere accentate italiane).
+  function soloRumore(testo) {
+    const senzaMarcatori = String(testo || '')
+      .replace(/\[[^\]]*\]/g, ' ')   // [risate], [music], [silence], [applause]...
+      .replace(/\([^)]*\)/g, ' ');   // (risate), (rumore)...
+    const utili = senzaMarcatori.match(/[\p{L}\p{N}]/gu);
+    return !utili || utili.length < 2;
+  }
+
+  /* ---------------------------------------------------------------------
      INTERFACCIA PUBBLICA
      Tutte le funzioni sono idempotenti e tolleranti all'ordine sbagliato:
      nessuna deve poter lanciare in faccia a chi la chiama.
@@ -3364,6 +3709,7 @@ const Orecchio = (function () {
         sommaTaratura = 0;
         contaTaratura = 0;
         ultimoSuonoT = 0;
+        ultimoParlatoT = ora(); // il conto dei 90 secondi parte da adesso, non da zero
         statoDichiarato = '';
         taraturaFinoA = ora() + TARATURA_FONDO_MS;
 
@@ -3493,6 +3839,11 @@ const Orecchio = (function () {
     sopraDa = 0;
     sottoDa = 0;
     inFrase = false;
+    // Il conto dei 90 secondi di silenzio riparte da qui: la sospensione (la
+    // pagina che parla) puo' durare a lungo e non e' silenzio dell'utente.
+    // Senza questo azzeramento l'orecchio si spegnerebbe da solo appena finita
+    // una risposta vocale lunga.
+    ultimoParlatoT = ora();
     dichiara('ascolto');
   }
 
@@ -3583,7 +3934,8 @@ const Orecchio = (function () {
     sospendi: sospendi,
     riprendi: riprendi,
     formato: formato,
-    diagnosi: diagnosi
+    diagnosi: diagnosi,
+    soloRumore: soloRumore
   };
 })();
 </script>
@@ -5964,6 +6316,792 @@ const Unica = (function () {
    non ci finisce sempre */
 if (typeof window !== 'undefined') window.Unica = Unica;
 </script>
+<script data-pezzo="permessi.js">
+/* ============================================================================
+   Permessi — la coda delle autorizzazioni, dentro la pagina.
+
+   Nasce da una frase precisa: «se io sono su ATHENA e non sono su Cloud,
+   come faccio a saperlo?». Le sessioni che lavorano al sistema, prima di
+   applicare qualcosa, devono chiedere il permesso. Finché la domanda
+   compariva nella finestra della sessione che la faceva, se Sante stava
+   sulla pagina non la vedeva mai, e la sessione restava ferma in eterno.
+   Adesso le richieste stanno in coda sul database e si risponde DA QUI,
+   con un bottone.
+
+   Questo è il punto più delicato di tutta la pagina: è il posto in cui si
+   autorizzano modifiche a un sistema di produzione, e un sì dato per
+   sbaglio è un danno vero. Da questo discende tutto il resto del file.
+
+   ── NON FA RETE ───────────────────────────────────────────────────────────
+   Il modulo non parla col database. Riceve l'elenco già pronto con dai(),
+   ogni due secondi, e quando si decide chiama onDecide(id, si, nota): al
+   database ci pensa la pagina. La conferma vera che la risposta è passata
+   NON è il ritorno di onDecide: è la sparizione della richiesta dal giro
+   di dai() successivo. Finché è ancora lì, la risposta non è arrivata.
+
+   ── LE REGOLE DEL COMPORTAMENTO ───────────────────────────────────────────
+   · La richiesta si legge in tre secondi: prima e in grande COSA vuole
+     fare; sotto e più piccolo chi lo chiede, su cosa, da quanto aspetta.
+     Il perché si legge senza doverlo aprire.
+   · «Come torno indietro» si vede SEMPRE. Se manca, lo si dice in chiaro
+     e in rosso: è un motivo per rispondere di no.
+   · Due bottoni, «SÌ, PROCEDI» e «NO», e il no è facile quanto il sì. Nessuno
+     dei due è preselezionato, e sul no non c'è nessuna conferma da dare
+     due volte. La nota sul no è facoltativa: «no» e basta deve bastare.
+   · Sul sì di una richiesta a rischio ALTO, e solo lì, c'è un secondo
+     passaggio: il bottone diventa «sicuro? sì, procedi» e decide il secondo
+     tocco. Su basso e medio, un tocco solo.
+   · Mentre la decisione è in viaggio i bottoni si spengono. Se dai()
+     ritorna con la richiesta ancora dentro, i bottoni NON tornano su come
+     se niente fosse: si aspetta la sparizione o la scadenza.
+   · Se dopo dieci secondi la richiesta è ancora lì, lo si dice.
+   · A coda vuota il riquadro non deve occupare spazio e non deve gridare:
+     una riga sottile e spenta. È lo stato normale.
+
+   ── PERCHÉ NON SI RIDISEGNA TUTTO ─────────────────────────────────────────
+   dai() arriva ogni due secondi e Sante potrebbe avere il dito sul bottone.
+   Ricostruire le schede a ogni giro significa togliergli il bottone da
+   sotto il dito, perdere il testo che stava scrivendo nella nota e azzerare
+   il secondo tocco già dato. Perciò le schede stanno in una mappa per id:
+   quelle che ci sono si aggiornano sul posto e solo nei campi cambiati, le
+   nuove si aggiungono, le sparite si tolgono. E l'ordine non si applica
+   mai mentre una scheda è impegnata (armata o in invio).
+
+   ── SICUREZZA ─────────────────────────────────────────────────────────────
+   Ogni testo dell'elenco arriva dal database e lo scrive una sessione di
+   Claude: non è una ragione per fidarsi. Tutto va a schermo con
+   textContent. In questo file non esiste una sola assegnazione a
+   innerHTML: se un giorno ne compare una, è un bug.
+
+   CONTRATTO
+     Permessi.monta(elemento, { onDecide })   onDecide(id, si, nota)
+     Permessi.dai(elenco)                     l'array di conv_pagina_permessi
+     Permessi.quanti()                        quante aspettano una risposta
+     Permessi.onCambio = f(quanti)            per il pallino sulla linguetta
+
+   ── I CAMPI CHE SI LEGGONO (contratto conv_permessi) ──────────────────────
+   id, sessione, cosa, perche, oggetto, rischio, come_torno_indietro. Per
+   «da quanto aspetta» si usa da_quanto_s se la RPC lo manda già calcolato,
+   altrimenti si calcola da chiesto_at: la tabella promette quello, non
+   promette anche il conto fatto. stato, risposta e deciso_at non servono
+   qui: la RPC restituisce solo le richieste ancora in attesa.
+   ========================================================================== */
+
+const Permessi = (function () {
+  'use strict';
+
+  /* Quanto si aspetta, in millisecondi, che una richiesta a cui si è già
+     risposto sparisca dal giro di dai(). Oltre, si dichiara il guaio. Dieci
+     secondi sono cinque giri di dati: se in cinque giri non è sparita, non
+     è lentezza, è che la risposta non è passata. */
+  const ATTESA_INVIO_MS = 10000;
+
+  /* Quanto resta armato il secondo tocco del sì a rischio alto, prima di
+     tornare da solo a «sì, procedi». Un bottone che resta armato per sempre
+     è una trappola: si torna dopo mezzo minuto e si trova il grilletto già
+     tirato. */
+  const ARMATO_MS = 6000;
+
+  /* La comparsa della scheda nuova: breve, una volta sola, mai un lampeggio
+     continuo. Chi lampeggia di continuo smette di essere guardato. */
+  const COMPARSA_MS = 300;
+
+  /* I tre rischi che il dato può portare. Qualunque altra cosa arrivi —
+     vuoto, maiuscolo, una parola mai vista — vale «alto»: fra il rischio di
+     trattare da leggera una modifica pesante e quello di chiedere un tocco
+     in più per niente, il secondo non fa danni. */
+  const RISCHI = { basso: 1, medio: 1, alto: 1 };
+  const RISCHIO_IGNOTO = 'alto';
+
+  /* ------------------------------------------------------------------------
+     LO STATO DEL MODULO
+     ---------------------------------------------------------------------- */
+  let radice = null;                 // l'elemento passato a monta()
+  let elElenco = null;               // il contenitore delle schede
+  let elVuoto = null;                // la riga «nessuna autorizzazione in attesa»
+  let chiamataDecide = null;         // opzioni.onDecide
+  const schede = new Map();          // id → scheda viva (vedi nuovaScheda)
+  let ultimoElenco = [];             // l'ultimo dato normalizzato
+  let datoInAttesa = null;           // dai() chiamata prima di monta(): non si perde
+  let ultimoQuanti = null;           // per non chiamare onCambio senza motivo
+
+  /* ========================================================================
+     LETTURE PRUDENTI
+     Tutto quello che arriva da fuori passa di qui. Nessuna di queste
+     funzioni lancia: davanti a null, campi assenti o tipi sbagliati
+     restituiscono un ripiego onesto.
+     ====================================================================== */
+
+  /* Una stringa vera e potata, oppure ''. */
+  function testo(v) {
+    if (v === null || v === undefined) return '';
+    if (typeof v === 'string') return v.trim();
+    if (typeof v === 'number' && isFinite(v)) return String(v);
+    return '';
+  }
+
+  /* L'identificatore. Può arrivare numero o stringa: dentro il modulo vive
+     sempre come stringa, così la mappa non fa scherzi fra 12 e '12'. Se non
+     c'è un id la richiesta non è rispondibile e va scartata: senza id non
+     si saprebbe a chi si sta dicendo di sì. */
+  function identificatore(v) {
+    if (typeof v === 'number' && isFinite(v)) return String(v);
+    const s = testo(v);
+    return s === '' ? null : s;
+  }
+
+  function numero(v) {
+    if (typeof v === 'number' && isFinite(v)) return v;
+    if (typeof v === 'string' && v.trim() !== '') {
+      const n = Number(v);
+      if (isFinite(n)) return n;
+    }
+    return null;
+  }
+
+  function rischioDi(v) {
+    const s = testo(v).toLowerCase();
+    return Object.prototype.hasOwnProperty.call(RISCHI, s) ? s : RISCHIO_IGNOTO;
+  }
+
+  /* Da quanto aspetta, scritto per essere letto di sguincio. I secondi
+     contano solo nel primo minuto: dopo, quello che serve sapere è se sono
+     minuti o ore. */
+  function daQuanto(sec) {
+    const n = numero(sec);
+    if (n === null || n < 0) return '';
+    if (n < 60) return 'da ' + Math.round(n) + ' s';
+    if (n < 3600) return 'da ' + Math.round(n / 60) + ' min';
+    const ore = Math.floor(n / 3600);
+    const min = Math.round((n - ore * 3600) / 60);
+    if (ore < 24) return 'da ' + ore + ' h' + (min ? ' ' + min : '');
+    const gg = Math.floor(ore / 24);
+    return 'da ' + gg + (gg === 1 ? ' giorno' : ' giorni');
+  }
+
+  /* Il contratto della tabella (conv_permessi) porta chiesto_at, un
+     timestamp: non è detto che la RPC aggiunga anche un da_quanto_s già
+     calcolato in secondi. Si usa il primo che c'è; se manca il secondo
+     non si resta senza «da quanto aspetta» — lo si calcola da chiesto_at. */
+  function secondiDaTimestamp(v) {
+    if (typeof v !== 'string' || v.trim() === '') return null;
+    const t = Date.parse(v);
+    if (!isFinite(t)) return null;
+    const s = (Date.now() - t) / 1000;
+    return s > 0 ? s : 0;
+  }
+
+  function secondiDi(r) {
+    const diretti = numero(r.da_quanto_s);
+    if (diretti !== null) return diretti;
+    return secondiDaTimestamp(r.chiesto_at);
+  }
+
+  /* Una richiesta ripulita, oppure null se non è utilizzabile. */
+  function ripulisci(r) {
+    if (!r || typeof r !== 'object') return null;
+    const id = identificatore(r.id);
+    if (id === null) return null;
+    const secondi = secondiDi(r);
+    return {
+      id: id,
+      cosa: testo(r.cosa),
+      perche: testo(r.perche),
+      oggetto: testo(r.oggetto),
+      sessione: testo(r.sessione),
+      rischio: rischioDi(r.rischio),
+      ritorno: testo(r.come_torno_indietro),
+      attesa: daQuanto(secondi),
+      secondi: secondi           // i secondi grezzi servono all'ordinamento
+    };
+  }
+
+  /* ========================================================================
+     IL VESTITO
+     Iniettato una volta sola. Tutte le classi cominciano per `pm-`, e i
+     colori si prendono SOLO dalle variabili del guscio: qui non si inventa
+     un blu. Il ripiego dopo la virgola serve alla pagina di prova e a
+     qualunque contesto in cui il guscio non ci sia; non è una seconda
+     tavolozza, è lo stesso numero scritto due volte.
+     ====================================================================== */
+  const CSS =
+    /* il riquadro. A coda vuota non deve occupare spazio: niente bordo,
+       niente fondo, l'altezza della sola riga spenta. */
+    '.pm{font-family:var(--ui,system-ui,sans-serif);color:var(--testo,#C9D2DE);' +
+      'display:flex;flex-direction:column;gap:9px;min-width:0}' +
+
+    /* la riga dello stato normale: sottile, spenta, non chiede niente */
+    '.pm-niente{font-family:var(--mono,monospace);font-size:10.5px;' +
+      'letter-spacing:.10em;text-transform:uppercase;color:var(--fioco,#4A5566);' +
+      'padding:5px 2px;line-height:1.3}' +
+    '.pm-niente[hidden]{display:none!important}' +
+
+    '.pm-elenco{display:flex;flex-direction:column;gap:9px;min-width:0}' +
+    '.pm-elenco[hidden]{display:none!important}' +
+
+    /* ── la scheda ─────────────────────────────────────────────────────────
+       --pm-tinta è il colore del rischio: lo cambia la classe, tutto il
+       resto della scheda lo legge da qui. */
+    '.pm-scheda{--pm-tinta:var(--ok,#3FAE9B);' +
+      'background:var(--pannello,#111825);border:1px solid var(--bordo,#1E2836);' +
+      'border-left:3px solid var(--pm-tinta);border-radius:9px;' +
+      'padding:11px 13px;display:flex;flex-direction:column;gap:7px;min-width:0}' +
+    '.pm-scheda.pm-medio{--pm-tinta:var(--attesa,#E8A33D)}' +
+    /* alto: il bordo si nota, ma non diventa un semaforo da luna park —
+       niente animazioni, niente fondo rosso, solo un contorno più deciso */
+    '.pm-scheda.pm-alto{--pm-tinta:var(--rosso,#D4736A);' +
+      'border-color:rgba(212,115,106,.55);box-shadow:0 0 0 1px rgba(212,115,106,.22)}' +
+
+    /* la comparsa della scheda nuova: 300 ms, una volta */
+    '@keyframes pm-arriva{from{opacity:0;transform:translateY(-4px)}' +
+      'to{opacity:1;transform:none}}' +
+    '.pm-scheda.pm-nuova{animation:pm-arriva ' + COMPARSA_MS + 'ms ease-out}' +
+
+    /* COSA: la prima cosa che si legge, e la più grande */
+    '.pm-cosa{font-size:15px;line-height:1.4;font-weight:600;' +
+      'color:var(--luce,#FFFFFF);overflow-wrap:anywhere}' +
+
+    /* la riga minuta: chi, su cosa, da quanto */
+    '.pm-meta{display:flex;flex-wrap:wrap;align-items:center;gap:4px 9px;' +
+      'font-family:var(--mono,monospace);font-size:10.5px;line-height:1.4;' +
+      'color:var(--fioco,#4A5566)}' +
+    '.pm-rischio{color:var(--pm-tinta);border:1px solid var(--pm-tinta);' +
+      'border-radius:4px;padding:0 5px;letter-spacing:.10em;text-transform:uppercase;' +
+      'font-weight:500;flex:0 0 auto}' +
+    '.pm-oggetto{color:var(--tenue,#7A8798);overflow-wrap:anywhere}' +
+    '.pm-chi{overflow-wrap:anywhere}' +
+    '.pm-quando{margin-left:auto;flex:0 0 auto;white-space:nowrap}' +
+
+    /* il perché: si legge senza aprire niente */
+    '.pm-perche{font-size:13px;line-height:1.5;color:var(--tenue,#7A8798);' +
+      'overflow-wrap:anywhere}' +
+    '.pm-perche[hidden]{display:none!important}' +
+
+    /* come torno indietro: sempre a vista, mai in un dettaglio da aprire */
+    '.pm-ritorno{font-size:12.5px;line-height:1.45;color:var(--testo,#C9D2DE);' +
+      'background:rgba(255,255,255,.035);border:1px solid var(--bordo,#1E2836);' +
+      'border-radius:7px;padding:7px 9px;overflow-wrap:anywhere}' +
+    '.pm-ritorno b{display:block;font-family:var(--mono,monospace);font-size:9.5px;' +
+      'letter-spacing:.11em;text-transform:uppercase;font-weight:500;' +
+      'color:var(--fioco,#4A5566);margin-bottom:3px}' +
+    /* quando manca: è un motivo per dire di no, e si vede */
+    '.pm-ritorno.pm-manca{color:var(--rosso,#D4736A);' +
+      'border-color:rgba(212,115,106,.5);background:rgba(212,115,106,.07)}' +
+    '.pm-ritorno.pm-manca b{color:var(--rosso,#D4736A)}' +
+
+    /* ── i bottoni ─────────────────────────────────────────────────────────
+       Stessa taglia, stesso peso, nessuno dei due preselezionato: il no
+       dev'essere facile quanto il sì. */
+    '.pm-azioni{display:flex;flex-wrap:wrap;align-items:center;gap:7px;margin-top:1px}' +
+    '.pm-bot{font:inherit;font-family:var(--mono,monospace);font-size:11.5px;' +
+      'letter-spacing:.07em;text-transform:uppercase;font-weight:500;' +
+      'border-radius:6px;padding:7px 15px;cursor:pointer;flex:0 0 auto;' +
+      'background:transparent;border:1px solid var(--bordo,#1E2836);' +
+      'color:var(--testo,#C9D2DE);' +
+      'transition:color .16s,border-color .16s,background .16s}' +
+    '.pm-si{color:var(--ok,#3FAE9B);border-color:rgba(63,174,155,.45)}' +
+    '.pm-si:hover{background:rgba(63,174,155,.14);border-color:rgba(63,174,155,.7);' +
+      'color:var(--luce,#FFFFFF)}' +
+    '.pm-no{color:var(--tenue,#7A8798)}' +
+    '.pm-no:hover{background:rgba(255,255,255,.05);border-color:#31404F;' +
+      'color:var(--testo,#C9D2DE)}' +
+    /* il sì armato: il secondo tocco del rischio alto. Cambia colore e
+       scritta, così non lo si preme per inerzia credendo di ripetere. */
+    '.pm-si.pm-armato{color:var(--rosso,#D4736A);border-color:rgba(212,115,106,.75);' +
+      'background:rgba(212,115,106,.14)}' +
+    '.pm-bot:disabled{opacity:.4;cursor:default;background:transparent;' +
+      'border-color:var(--bordo,#1E2836);color:var(--fioco,#4A5566)}' +
+
+    /* la nota sul no: c'è, ma non pesa. Facoltativa. */
+    '.pm-nota{flex:0 1 230px;min-width:0;font:inherit;font-size:12px;' +
+      'font-family:var(--ui,system-ui,sans-serif);' +
+      'background:var(--fondo,#090D14);color:var(--testo,#C9D2DE);' +
+      'border:1px solid var(--bordo,#1E2836);border-radius:6px;padding:6px 9px}' +
+    '.pm-nota::placeholder{color:var(--fioco,#4A5566)}' +
+    '.pm-nota:disabled{opacity:.4}' +
+
+    /* la riga dell'esito: «sto mandando…», o il guaio */
+    '.pm-esito{font-family:var(--mono,monospace);font-size:11px;line-height:1.4;' +
+      'color:var(--tenue,#7A8798)}' +
+    '.pm-esito.pm-guaio{color:var(--rosso,#D4736A)}' +
+    '.pm-esito[hidden]{display:none!important}';
+
+  function vesti(doc) {
+    if (doc.getElementById('pm-stile-permessi')) return;
+    const stile = doc.createElement('style');
+    stile.id = 'pm-stile-permessi';
+    stile.textContent = CSS;                       // CSS nostro, non dato altrui
+    (doc.head || doc.documentElement).appendChild(stile);
+  }
+
+  /* ========================================================================
+     COSTRUZIONE DI UNA SCHEDA
+     Si costruisce una volta sola. Da lì in poi si aggiornano i pezzi, mai
+     il contenitore: è quello che tiene fermo il bottone sotto il dito.
+     ====================================================================== */
+  function nuovaScheda(doc, dato) {
+    const nodo = doc.createElement('article');
+    nodo.className = 'pm-scheda pm-nuova';
+    nodo.setAttribute('data-id', dato.id);
+
+    /* 1 — COSA. In grande e per primo, anche nell'ordine di lettura di uno
+       screen reader: è la domanda a cui si sta rispondendo. */
+    const elCosa = doc.createElement('div');
+    elCosa.className = 'pm-cosa';
+    nodo.appendChild(elCosa);
+
+    /* 2 — la riga minuta */
+    const elMeta = doc.createElement('div');
+    elMeta.className = 'pm-meta';
+    const elRischio = doc.createElement('span');
+    elRischio.className = 'pm-rischio';
+    const elOggetto = doc.createElement('span');
+    elOggetto.className = 'pm-oggetto';
+    const elChi = doc.createElement('span');
+    elChi.className = 'pm-chi';
+    const elQuando = doc.createElement('span');
+    elQuando.className = 'pm-quando';
+    elMeta.appendChild(elRischio);
+    elMeta.appendChild(elOggetto);
+    elMeta.appendChild(elChi);
+    elMeta.appendChild(elQuando);
+    nodo.appendChild(elMeta);
+
+    /* 3 — il perché, a vista */
+    const elPerche = doc.createElement('div');
+    elPerche.className = 'pm-perche';
+    nodo.appendChild(elPerche);
+
+    /* 4 — come torno indietro, SEMPRE */
+    const elRitorno = doc.createElement('div');
+    elRitorno.className = 'pm-ritorno';
+    const elRitornoTit = doc.createElement('b');
+    elRitornoTit.textContent = 'come torno indietro';
+    const elRitornoTesto = doc.createElement('span');
+    elRitorno.appendChild(elRitornoTit);
+    elRitorno.appendChild(elRitornoTesto);
+    nodo.appendChild(elRitorno);
+
+    /* 5 — i bottoni e la nota */
+    const elAzioni = doc.createElement('div');
+    elAzioni.className = 'pm-azioni';
+    const botSi = doc.createElement('button');
+    botSi.type = 'button';
+    botSi.className = 'pm-bot pm-si';
+    botSi.textContent = 'SÌ, PROCEDI';
+    const botNo = doc.createElement('button');
+    botNo.type = 'button';
+    botNo.className = 'pm-bot pm-no';
+    botNo.textContent = 'NO';
+    const elNota = doc.createElement('input');
+    elNota.type = 'text';
+    elNota.className = 'pm-nota';
+    elNota.placeholder = 'motivo, se vuoi';
+    elNota.setAttribute('aria-label', 'motivo del no, facoltativo');
+    elAzioni.appendChild(botSi);
+    elAzioni.appendChild(botNo);
+    elAzioni.appendChild(elNota);
+    nodo.appendChild(elAzioni);
+
+    /* 6 — l'esito. role=status perché «sto mandando…» e il guaio vanno
+       annunciati anche a chi la pagina non la guarda. */
+    const elEsito = doc.createElement('div');
+    elEsito.className = 'pm-esito';
+    elEsito.setAttribute('role', 'status');
+    elEsito.hidden = true;
+    nodo.appendChild(elEsito);
+
+    const scheda = {
+      id: dato.id,
+      nodo: nodo,
+      elCosa: elCosa, elRischio: elRischio, elOggetto: elOggetto,
+      elChi: elChi, elQuando: elQuando, elPerche: elPerche,
+      elRitorno: elRitorno, elRitornoTesto: elRitornoTesto,
+      botSi: botSi, botNo: botNo, elNota: elNota, elEsito: elEsito,
+      dato: null,                 // l'ultimo dato scritto, per non riscrivere uguale
+      stato: 'attesa',            // attesa | armato | invio | guaio
+      timerArmato: null,
+      timerInvio: null,
+      timerComparsa: null
+    };
+
+    botSi.addEventListener('click', function () { premutoSi(scheda); });
+    botNo.addEventListener('click', function () { premutoNo(scheda); });
+
+    /* la comparsa dura una volta sola: poi la classe se ne va, così un
+       riordino successivo non la fa ripartire */
+    scheda.timerComparsa = setTimeout(function () {
+      scheda.timerComparsa = null;
+      nodo.classList.remove('pm-nuova');
+    }, COMPARSA_MS + 50);
+
+    return scheda;
+  }
+
+  /* Aggiorna i campi di una scheda già a schermo. Scrive solo quello che è
+     davvero cambiato: riscrivere un textContent uguale butta via la
+     selezione del testo che l'utente stava facendo. */
+  function aggiornaScheda(scheda, d) {
+    const v = scheda.dato;
+
+    if (!v || v.cosa !== d.cosa) {
+      scheda.elCosa.textContent = d.cosa || '(la richiesta non dice cosa vuole fare)';
+    }
+    if (!v || v.rischio !== d.rischio) {
+      scheda.elRischio.textContent = 'rischio ' + d.rischio;
+      scheda.nodo.classList.toggle('pm-medio', d.rischio === 'medio');
+      scheda.nodo.classList.toggle('pm-alto', d.rischio === 'alto');
+      /* cambiato il rischio, un armato vecchio non vale più: si disarma */
+      if (scheda.stato === 'armato') disarma(scheda);
+    }
+    if (!v || v.oggetto !== d.oggetto) {
+      scheda.elOggetto.textContent = d.oggetto || 'oggetto non dichiarato';
+    }
+    if (!v || v.sessione !== d.sessione) {
+      scheda.elChi.textContent = d.sessione ? '· ' + d.sessione : '· sessione ignota';
+    }
+    if (!v || v.attesa !== d.attesa) {
+      scheda.elQuando.textContent = d.attesa;
+    }
+    if (!v || v.perche !== d.perche) {
+      scheda.elPerche.textContent = d.perche;
+      scheda.elPerche.hidden = (d.perche === '');
+    }
+    if (!v || v.ritorno !== d.ritorno) {
+      if (d.ritorno) {
+        scheda.elRitorno.classList.remove('pm-manca');
+        scheda.elRitornoTesto.textContent = d.ritorno;
+      } else {
+        /* campo vuoto: lo si dice in chiaro e in rosso. È un motivo per
+           rispondere di no, non un dettaglio da nascondere. */
+        scheda.elRitorno.classList.add('pm-manca');
+        scheda.elRitornoTesto.textContent = 'non è detto come si torna indietro';
+      }
+    }
+
+    scheda.dato = d;
+
+    /* Il sì a rischio alto vuole due tocchi; basso e medio uno solo. Se il
+       rischio cambia sotto i piedi, cambia anche l'etichetta. */
+    if (scheda.stato === 'attesa') scheda.botSi.textContent = 'SÌ, PROCEDI';
+  }
+
+  /* ========================================================================
+     LA DECISIONE
+     ====================================================================== */
+
+  function disarma(scheda) {
+    if (scheda.timerArmato) { clearTimeout(scheda.timerArmato); scheda.timerArmato = null; }
+    scheda.stato = 'attesa';
+    scheda.botSi.classList.remove('pm-armato');
+    scheda.botSi.textContent = 'SÌ, PROCEDI';
+  }
+
+  function premutoSi(scheda) {
+    if (scheda.stato === 'invio') return;            // già in viaggio: non si insiste
+    const alto = scheda.dato && scheda.dato.rischio === 'alto';
+
+    if (alto && scheda.stato !== 'armato') {
+      /* primo tocco su una richiesta pesante: non decide niente, arma */
+      scheda.stato = 'armato';
+      scheda.botSi.classList.add('pm-armato');
+      scheda.botSi.textContent = 'sicuro? sì, procedi';
+      scheda.elEsito.hidden = true;
+      scheda.elEsito.classList.remove('pm-guaio');
+      if (scheda.timerArmato) clearTimeout(scheda.timerArmato);
+      scheda.timerArmato = setTimeout(function () {
+        scheda.timerArmato = null;
+        if (scheda.stato === 'armato') disarma(scheda);
+      }, ARMATO_MS);
+      return;
+    }
+
+    if (scheda.timerArmato) { clearTimeout(scheda.timerArmato); scheda.timerArmato = null; }
+    decide(scheda, true, '');
+  }
+
+  /* Il no non ha nessun secondo passaggio e nessuna conferma: dire di no
+     dev'essere facile quanto dire di sì. La nota è facoltativa. */
+  function premutoNo(scheda) {
+    if (scheda.stato === 'invio') return;
+    if (scheda.timerArmato) { clearTimeout(scheda.timerArmato); scheda.timerArmato = null; }
+    const nota = testo(scheda.elNota.value);
+    decide(scheda, false, nota);
+  }
+
+  function decide(scheda, si, nota) {
+    entraInInvio(scheda);
+
+    if (typeof chiamataDecide !== 'function') {
+      /* montata senza onDecide: non si finge di aver mandato qualcosa */
+      guaio(scheda, 'la pagina non sa a chi mandare la risposta');
+      return;
+    }
+
+    let esito;
+    try {
+      esito = chiamataDecide(scheda.id, si, nota);
+    } catch (e) {
+      guaio(scheda, 'non sono riuscita a mandare la risposta');
+      return;
+    }
+
+    /* Se onDecide restituisce una promessa, il suo fallimento è una notizia
+       immediata e la si dà subito. Il successo invece NON è la conferma: la
+       conferma è la sparizione dal giro di dai(). Quindi si resta in invio,
+       e il conto alla rovescia dei dieci secondi continua. */
+    if (esito && typeof esito.then === 'function') {
+      esito.then(null, function () {
+        if (scheda.stato === 'invio') guaio(scheda, 'non sono riuscita a mandare la risposta');
+      });
+    }
+  }
+
+  function entraInInvio(scheda) {
+    scheda.stato = 'invio';
+    scheda.botSi.classList.remove('pm-armato');
+    scheda.botSi.textContent = 'SÌ, PROCEDI';
+    scheda.botSi.disabled = true;
+    scheda.botNo.disabled = true;
+    scheda.elNota.disabled = true;
+    scheda.elEsito.classList.remove('pm-guaio');
+    scheda.elEsito.textContent = 'sto mandando…';
+    scheda.elEsito.hidden = false;
+
+    if (scheda.timerInvio) clearTimeout(scheda.timerInvio);
+    scheda.timerInvio = setTimeout(function () {
+      scheda.timerInvio = null;
+      /* ancora qui dopo dieci secondi: la risposta non è passata */
+      if (scheda.stato === 'invio') guaio(scheda, 'non sono riuscita a mandare la risposta');
+    }, ATTESA_INVIO_MS);
+
+    /* una in meno da decidere: il pallino sulla linguetta deve calare
+       adesso, non fra due secondi quando il database si accorgerà */
+    avvisaCambio();
+  }
+
+  /* Il guaio si dichiara e i bottoni tornano su. Lasciarli spenti sarebbe
+     più «pulito» e sarebbe sbagliato: la richiesta è ancora aperta, la
+     sessione è ancora ferma ad aspettare, e l'unico modo di sbloccarla è
+     poter riprovare. */
+  function guaio(scheda, frase) {
+    if (scheda.timerInvio) { clearTimeout(scheda.timerInvio); scheda.timerInvio = null; }
+    scheda.stato = 'guaio';
+    scheda.botSi.disabled = false;
+    scheda.botNo.disabled = false;
+    scheda.elNota.disabled = false;
+    scheda.elEsito.textContent = frase + ' — si può riprovare';
+    scheda.elEsito.classList.add('pm-guaio');
+    scheda.elEsito.hidden = false;
+    avvisaCambio();
+  }
+
+  function spegniTimer(scheda) {
+    if (scheda.timerArmato) clearTimeout(scheda.timerArmato);
+    if (scheda.timerInvio) clearTimeout(scheda.timerInvio);
+    if (scheda.timerComparsa) clearTimeout(scheda.timerComparsa);
+    scheda.timerArmato = scheda.timerInvio = scheda.timerComparsa = null;
+  }
+
+  /* ========================================================================
+     IL CONTO E IL PALLINO
+     Si conta quello che aspetta ANCORA una risposta di Sante: una scheda a
+     cui ha già risposto e che sta viaggiando non gli chiede più niente, e
+     il pallino sulla linguetta deve poter spegnersi senza aspettare il
+     database. Una che è andata in guaio invece torna a chiedere.
+     ====================================================================== */
+  function contaAperte() {
+    let n = 0;
+    for (let i = 0; i < ultimoElenco.length; i++) {
+      const s = schede.get(ultimoElenco[i].id);
+      if (!s || s.stato !== 'invio') n++;
+    }
+    return n;
+  }
+
+  function avvisaCambio() {
+    const n = contaAperte();
+    if (n === ultimoQuanti) return;
+    ultimoQuanti = n;
+    if (typeof api.onCambio === 'function') {
+      try { api.onCambio(n); } catch (e) { /* la pagina non deve poter rompere la coda */ }
+    }
+  }
+
+  /* ========================================================================
+     IL DISEGNO
+     ====================================================================== */
+
+  function mostraVuoto(vuoto) {
+    if (elVuoto) elVuoto.hidden = !vuoto;
+    if (elElenco) elElenco.hidden = vuoto;
+    if (radice) radice.classList.toggle('pm-scarico', vuoto);
+  }
+
+  function disegna(elenco) {
+    const doc = radice.ownerDocument || document;
+    const vivi = new Set();
+
+    for (let i = 0; i < elenco.length; i++) {
+      const d = elenco[i];
+      vivi.add(d.id);
+      let s = schede.get(d.id);
+      if (!s) {
+        s = nuovaScheda(doc, d);
+        schede.set(d.id, s);
+        elElenco.appendChild(s.nodo);
+      }
+      aggiornaScheda(s, d);
+      /* NB: qui NON si tocca lo stato dei bottoni. Se la scheda è in invio
+         e il dato la riporta, vuol dire che la risposta non è ancora
+         passata: far ricomparire i bottoni direbbe una bugia. */
+    }
+
+    /* le sparite se ne vanno, timer compresi */
+    schede.forEach(function (s, id) {
+      if (vivi.has(id)) return;
+      spegniTimer(s);
+      if (s.nodo.parentNode) s.nodo.parentNode.removeChild(s.nodo);
+      schede.delete(id);
+    });
+
+    riordina(elenco);
+    mostraVuoto(elenco.length === 0);
+  }
+
+  /* L'ordine: prima il rischio più alto, poi chi aspetta da più tempo, poi
+     l'id, perché a parità di tutto l'ordine non deve ballare.
+     Ma il riordino sposta i nodi, e spostare un nodo mentre Sante ha il
+     dito sul suo bottone è il modo migliore per fargli premere il bottone
+     sbagliato. Perciò: se una qualunque scheda è impegnata — armata o in
+     invio — il riordino si rimanda al giro dopo. Le richieste restano nel
+     loro ordine di prima, che è un difetto invisibile; l'altro no. */
+  const PESO = { alto: 0, medio: 1, basso: 2 };
+
+  function riordina(elenco) {
+    let impegnata = false;
+    schede.forEach(function (s) {
+      if (s.stato === 'armato' || s.stato === 'invio') impegnata = true;
+    });
+    if (impegnata) return;
+
+    const ordinato = elenco.slice().sort(function (a, b) {
+      const pa = PESO[a.rischio], pb = PESO[b.rischio];
+      if (pa !== pb) return pa - pb;
+      const ta = numero(a.secondi), tb = numero(b.secondi);
+      if (ta !== null && tb !== null && ta !== tb) return tb - ta;
+      return a.id < b.id ? -1 : (a.id > b.id ? 1 : 0);
+    });
+
+    /* si sposta solo chi è fuori posto: appendChild su un nodo già al posto
+       giusto è comunque un movimento nel DOM, e non serve a niente */
+    let atteso = elElenco.firstChild;
+    for (let i = 0; i < ordinato.length; i++) {
+      const s = schede.get(ordinato[i].id);
+      if (!s) continue;
+      if (s.nodo !== atteso) elElenco.insertBefore(s.nodo, atteso);
+      else atteso = s.nodo.nextSibling;
+    }
+  }
+
+  /* ========================================================================
+     IL CONTRATTO
+     ====================================================================== */
+  const api = {
+
+    /* onCambio la assegna la pagina: Permessi.onCambio = f(quanti) */
+    onCambio: null,
+
+    /* monta(elemento, {onDecide})
+       L'elemento arriva vuoto e ci si costruisce dentro. onDecide è chi
+       parla col database: qui non si conosce né la sua strada né le sue
+       chiavi. */
+    monta: function (elemento, opzioni) {
+      if (!elemento || typeof elemento.appendChild !== 'function') return api;
+      const doc = elemento.ownerDocument || document;
+      vesti(doc);
+
+      radice = elemento;
+      chiamataDecide = (opzioni && typeof opzioni.onDecide === 'function')
+        ? opzioni.onDecide : null;
+
+      /* si riparte pulito anche se monta() viene chiamata due volte */
+      schede.forEach(spegniTimer);
+      schede.clear();
+      while (radice.firstChild) radice.removeChild(radice.firstChild);
+
+      radice.classList.add('pm');
+      if (!radice.getAttribute('aria-label')) {
+        radice.setAttribute('aria-label', 'autorizzazioni in attesa');
+      }
+      if (!radice.getAttribute('role')) radice.setAttribute('role', 'region');
+
+      elVuoto = doc.createElement('div');
+      elVuoto.className = 'pm-niente';
+      elVuoto.textContent = 'nessuna autorizzazione in attesa';
+
+      elElenco = doc.createElement('div');
+      elElenco.className = 'pm-elenco';
+
+      radice.appendChild(elVuoto);
+      radice.appendChild(elElenco);
+
+      /* il dato può essere arrivato prima del montaggio: non si perde.
+         Se non è mai arrivato niente, si disegna comunque — e quello che
+         si vede è la riga spenta, che è lo stato normale. */
+      ultimoQuanti = null;
+      const arretrato = datoInAttesa;
+      datoInAttesa = null;
+      if (arretrato !== null && arretrato !== undefined) {
+        api.dai(arretrato);
+      } else {
+        disegna(ultimoElenco);
+        avvisaCambio();
+      }
+      return api;
+    },
+
+    /* dai(elenco) — l'array di conv_pagina_permessi, ogni due secondi.
+       Può essere vuoto, può essere null, può contenere righe rotte: si
+       tiene quello che si capisce e si butta il resto senza lamentarsi. */
+    dai: function (elenco) {
+      const puliti = [];
+      if (Array.isArray(elenco)) {
+        const visti = new Set();
+        for (let i = 0; i < elenco.length; i++) {
+          const d = ripulisci(elenco[i]);
+          if (!d || visti.has(d.id)) continue;   // due volte lo stesso id: la prima vince
+          visti.add(d.id);
+          puliti.push(d);
+        }
+      }
+
+      if (!radice) { datoInAttesa = elenco; ultimoElenco = puliti; return api; }
+
+      ultimoElenco = puliti;
+      disegna(puliti);
+      avvisaCambio();
+      return api;
+    },
+
+    /* Quante richieste aspettano una risposta. Chi ha già ricevuto la sua e
+       la sta mandando non si conta: il pallino sulla linguetta serve a dire
+       «c'è da decidere», non «c'è del traffico». */
+    quanti: function () { return contaAperte(); },
+
+    /* messe fuori perché la pagina di prova possa guardarle in faccia */
+    daQuanto: daQuanto,
+    ATTESA_INVIO_MS: ATTESA_INVIO_MS,
+    ARMATO_MS: ARMATO_MS
+  };
+
+  return api;
+})();
+
+/* il guscio lo cerca su window; il const da solo, dentro uno script
+   normale, non ci finisce sempre */
+if (typeof window !== 'undefined') window.Permessi = Permessi;
+</script>
 <script data-pezzo="app.js">
 // ─────────────────────────────────────────────────────────────────────────────
 // ATHENA — il cablaggio. Qui non c'è quasi niente di intelligente: gli attrezzi
@@ -5982,6 +7120,7 @@ let ANON = '', PASS = '';
 const BATTITO_MS        = 2000;    // messaggi e stato
 const FLUSSO_CHIUSO_MS  = 6000;    // il flusso, quando la sua scheda non è aperta
 const GRAFO_RINFRESCO_MS = 600000; // il grafo pesa 127 KB e 500 ms: una volta ogni dieci minuti
+const ARTEFATTI_OGNI_MS = 10000;   // gli artefatti: ogni pochi giri, non a ogni battito
 
 const $  = s => document.querySelector(s);
 const $$ = s => Array.from(document.querySelectorAll(s));
@@ -5990,11 +7129,13 @@ const discorso = $('#discorso'), spia = $('#spia'), statoTesto = $('#statoTesto'
       micro = $('#micro'), istruzione = $('#istruzione'), scritto = $('#scritto'),
       vocebtn = $('#vocebtn'), nomeSess = $('#nomeSessione'),
       livelloBarra = $('#livello i'), contaNuove = $('#contaNuove'),
-      graficoBox = $('#graficoBox'), graficoConta = $('#graficoConta');
+      graficoBox = $('#graficoBox'), graficoConta = $('#graficoConta'),
+      permessiConta = $('#permessiConta');
 
 let primoGiro = true;   // la conversazione gia avvenuta si disegna ma NON si rilegge a voce
-let ultimoId = 0, ultimoFlusso = 0, schedaAperta = 'conversazione';
-let battito = null, quandoFlusso = 0, quandoGrafo = 0, grafoAvviato = false;
+let ultimoId = 0, ultimoFlusso = 0, ultimoArtefatto = 0, schedaAperta = 'conversazione';
+let battito = null, quandoFlusso = 0, quandoGrafo = 0, quandoArtefatti = 0, grafoAvviato = false;
+let artefattiVisti = [];   // l'elenco intero, accumulato: a Vetrina.artefatti() si passa sempre tutto
 
 // il browser ricorda; se non può (finestra anonima, storage bloccato) si riparte
 // dall'ingresso a ogni apertura: scomodo, ma non rompe niente.
@@ -6043,17 +7184,25 @@ const ora = s => new Date(s).toLocaleTimeString('it-IT',{hour:'2-digit',minute:'
 const giaDisegnate = new Set();
 
 function aggiungi(m){
-  if(m && m.id != null){ if(giaDisegnate.has(m.id)) return; giaDisegnate.add(m.id); }
+  // seconda rete: se per qualunque motivo la stessa battuta arriva due volte,
+  // a schermo ci finisce una volta sola
+  if(m && m.id != null){
+    if(giaDisegnate.has(m.id)) return;
+    giaDisegnate.add(m.id);
+  }
   const vuoto = discorso.querySelector('.vuoto');
   if(vuoto) vuoto.remove();
   const d = document.createElement('div');
   d.className = 'msg '+(m.chi==='sante'?'sante':'claude');
+  // il testo della voce NON si scrive piu sotto la battuta: la voce si sente,
+  // e la doppia copia riempiva la chat di roba gia letta (chiesto il 29/08).
   d.innerHTML = '<div class="quando">'+(m.chi==='sante'?'tu':'ATHENA')+' · '+ora(m.at)+'</div>'
-    + html(m.testo)
-    + (m.testo_voce ? '<div class="parlato"><b>a voce</b><span></span></div>' : '');
-  if(m.testo_voce) d.querySelector('.parlato span').textContent = m.testo_voce;
+    + html(m.testo);
   discorso.appendChild(d);
   discorso.scrollTop = discorso.scrollHeight;
+
+  // gli allegati (se ci sono) vanno in vetrina come una scheda leggibile
+  try{ Vetrina.allegati(m); }catch(e){}
 
   if(m.chi === 'claude'){
     // il codice e le tabelle vanno in vetrina, dove si leggono davvero
@@ -6127,6 +7276,14 @@ Bocca.onInizio = () => { try{ Orecchio.sospendi(); }catch(e){} };
 Bocca.onFine   = () => { try{ Orecchio.riprendi(); }catch(e){} };
 Bocca.onGuaio  = messaggio => { istruzione.textContent = messaggio; segnala('voce: '+messaggio); };
 
+// il pallino vicino al titolo: acceso quando c'e' almeno una richiesta che
+// aspetta una risposta, spento appena non ce n'e' più nessuna — la conta la
+// fa il modulo Permessi, qui si accende solo il segnale
+Permessi.onCambio = quanti => {
+  permessiConta.hidden = (quanti === 0);
+  permessiConta.textContent = String(quanti);
+};
+
 async function trascrivi(blob){
   const fd = new FormData();
   fd.append('comando','ascolta'); fd.append('pass',PASS);
@@ -6175,7 +7332,10 @@ async function accendiMicrofono(){
     onGuaio: m => spegniMicrofono(m),
     onPezzo: async blob => {
       const t = await trascrivi(blob);
-      if(t){ mostraProvvisoria(t); manda(t); }
+      // rumore (silenzio, [risate], solo punteggiatura...): si scarta senza
+      // dire niente e senza mandarlo al database, chiesto da Sante.
+      if(t && Orecchio.soloRumore(t)){ /* niente: si resta in ascolto */ }
+      else if(t){ mostraProvvisoria(t); manda(t); }
       else segno('ascolta','non ho capito, ripeti');
     }
   });
@@ -6320,6 +7480,12 @@ async function guarda(){
     const ses = await rpc('conv_pagina_sessioni',{p_pass:PASS});
     if(ses) try{ Sessioni.dai(ses); }catch(e){}
 
+    // le autorizzazioni in attesa: è la richiesta esplicita di Sante — deve
+    // poterle vedere e rispondere qui dentro, senza andare a cercarle altrove
+    const perm = await rpc('conv_pagina_permessi',{p_pass:PASS});
+    if(inSecondaFila) return;   // nel frattempo può essere passata un'altra finestra
+    if(perm) try{ Permessi.dai(perm); }catch(e){}
+
     const s = await rpc('conv_pagina_stato',{p_pass:PASS});
     if(inSecondaFila) return;   // la pastiglia non deve dire «ci sto lavorando» da ferma
     if(s){
@@ -6347,6 +7513,15 @@ async function guarda(){
         }catch(e){}
       }
     }
+    if(adesso - quandoArtefatti >= ARTEFATTI_OGNI_MS){
+      quandoArtefatti = adesso;
+      const art = await rpc('conv_pagina_artefatti',{p_pass:PASS,p_dopo:ultimoArtefatto});
+      if(art){
+        art.forEach(a => { ultimoArtefatto = Math.max(ultimoArtefatto, a.id); artefattiVisti.push(a); });
+        try{ Vetrina.artefatti(artefattiVisti); }catch(e){}
+      }
+    }
+
     if(grafoAvviato && adesso - quandoGrafo >= GRAFO_RINFRESCO_MS) prendiGrafo();
 
   }catch(e){
@@ -6533,6 +7708,12 @@ try{
   try{ Vetrina.monta($('#vetrinaBox')); }catch(e){}
   try{ Flusso.monta($('#flussoBox')); }catch(e){}
   try{ Sessioni.monta($('#sessioniElenco'), {onNuova: chiediSessione}); }catch(e){}
+  try{
+    Permessi.monta($('#permessiBox'), {
+      onDecide: (id, si, nota) => rpc('conv_pagina_decide',
+        {p_pass:PASS, p_id:Number(id), p_si:si, p_nota: nota || null})
+    });
+  }catch(e){}
   apri('conversazione');
   spegniMicrofono();                 // stato iniziale coerente della barra
   const c = cassetto.leggi();
