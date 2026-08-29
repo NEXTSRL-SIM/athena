@@ -12,8 +12,8 @@
      vestire le battute vengono dalla pagina MIND e non sono stati toccati.
      ═══════════════════════════════════════════════════════════════════════════ */
   :root{
-    --fondo:#090D14;--fondo2:#0E1420;--pannello:#111825;--bordo:#1E2836;
-    --testo:#C9D2DE;--tenue:#7A8798;--fioco:#4A5566;
+    --fondo:#0B0B0C;--fondo2:#131315;--pannello:#1B1B1E;--bordo:#2E2B28;
+    --testo:#E8E4DE;--tenue:#A39C93;--fioco:#706A62;
     --blu:#4C8DF6;--luce:#FFFFFF;--attesa:#E8A33D;--ok:#3FAE9B;--rosso:#D4736A;
     --mono:'IBM Plex Mono',ui-monospace,Menlo,monospace;
     --ui:'Archivo',system-ui,-apple-system,Segoe UI,sans-serif;
@@ -204,9 +204,10 @@
   #discorso{overflow-y:auto;overflow-x:hidden;padding:20px 22px 12px;
     display:flex;flex-direction:column;gap:14px;min-width:0}
   /* le battute: identiche a quelle della pagina attuale */
-  .msg{max-width:min(74ch,100%);overflow-wrap:anywhere;border-radius:10px;padding:11px 14px;border:1px solid transparent}
-  .msg.sante{align-self:flex-end;background:rgba(76,141,246,.11);border-color:rgba(76,141,246,.28)}
-  .msg.claude{align-self:flex-start;background:var(--pannello);border-color:var(--bordo)}
+  .msg{max-width:min(74ch,100%);overflow-wrap:anywhere}
+  .msg.sante{align-self:flex-end;background:var(--pannello);border:1px solid var(--bordo);
+    border-radius:14px;padding:11px 14px}
+  .msg.claude{align-self:flex-start;background:none;border:none;padding:0}
   .msg .quando{font-family:var(--mono);font-size:10px;color:var(--fioco);margin-bottom:4px;
     display:flex;gap:8px;align-items:center}
   .msg pre{background:#0B111C;border:1px solid var(--bordo);border-radius:7px;padding:10px 12px;
@@ -224,6 +225,21 @@
   .msg .parlato b{color:var(--fioco);font-weight:500;font-family:var(--mono);font-size:10px;
     text-transform:uppercase;letter-spacing:.08em;flex:0 0 auto;padding-top:2px}
   .vuoto{margin:auto;text-align:center;color:var(--fioco);font-size:13.5px;max-width:34ch}
+
+  /* ── i pulsantini copia/ascolta di ogni battuta ──────────────────────────
+     Sempre nel DOM e sempre visibili (anche su un tablet, dove l'hover non
+     esiste): a riposo sono molto tenui, e si fanno notare al passaggio del
+     mouse o quando prendono il fuoco della tastiera. Mai nascosti del tutto
+     dietro :hover, altrimenti su un tablet non si trovano piu'. */
+  .msg .azioni{margin-top:7px;display:flex;gap:12px;opacity:.45;
+    transition:opacity .15s}
+  .msg:hover .azioni,.msg .azioni:focus-within{opacity:1}
+  .msg .az{font:inherit;font-family:var(--mono);font-size:10px;letter-spacing:.05em;
+    text-transform:uppercase;background:transparent;color:var(--fioco);border:none;
+    padding:2px 0;cursor:pointer;line-height:1.3}
+  .msg .az:hover{color:var(--testo)}
+  .msg .az-ascolta.in-lettura{color:var(--blu)}
+  .msg .az-copia.fatto{color:var(--ok)}
 
   /* ── la battuta provvisoria ──────────────────────────────────────────────
      Quello che l'utente ha appena detto compare subito, prima che il
@@ -606,6 +622,10 @@
      Grafico.ferma()               sospende il disegno (scheda in secondo piano)
      Grafico.riprendi()
      Grafico.dimensione()          {nodi, archi}
+     Grafico.voce(livello, chi)    livello 0..1, chi 'parla'|'ascolta': la nuvola
+                                   pulsa a tempo — verso fuori se parla, dentro
+                                   se ascolta. La rotazione oraria non si tocca.
+     Grafico.voceFine()            torna a riposo, morbido, mai di scatto
 
    LE REGOLE DEL DISEGNO SONO QUELLE DELLA PAGINA DI PARTENZA, corrette a mano
    una alla volta: sono ricopiate qui come stanno e non vanno reinventate.
@@ -627,19 +647,28 @@ const Grafico = (function () {
 
   /* ----------------------------------------------------------------------
      I COLORI
-     Il BLU è la famiglia dominante — workflow, nodi, memorie — gli altri
-     restano come accenti. L'arancio Odoo è l'unico caldo: è roba di casa
-     d'altri. La luce bianca segnala l'attività, non il tipo.
+     Il BLU è la famiglia dominante: i tipi NUMEROSI (i workflow prima di
+     tutti) stanno tutti nella famiglia blu, con sfumature diverse fra loro —
+     si riconoscono senza spiccare. I tipi POCHI (sotto SOGLIA_RARO oggetti)
+     restano colorati, ben colorati, per riconoscerli a colpo d'occhio.
+     L'assegnazione (assegnaColori) si ricalcola ad ogni dato nuovo guardando
+     i conteggi VERI del dato arrivato — non è un elenco di lettere scritto a
+     mano, quindi regge qualunque lettera compaia in futuro.
+     La luce che segnala l'attività resta BIANCA, mai del colore del tipo.
      Tutte le funzioni colore lavorano su TERNE DI NUMERI e producono la
      stringa solo alla fine: passarsi stringhe fra loro era il difetto dello
      schermo nero.
      -------------------------------------------------------------------- */
-  const COL = { w: '#4C8DF6', n: '#7DD3FC', m: '#22B8D6', e: '#8B84E0', t: '#3FAE9B', g: '#C983C4', o: '#E8934A' };
-  const N3 = {};
-  Object.keys(COL).forEach(k => {
-    const x = COL[k];
-    N3[k] = [parseInt(x.slice(1, 3), 16), parseInt(x.slice(3, 5), 16), parseInt(x.slice(5, 7), 16)];
-  });
+  const SOGLIA_RARO = 15;   // sotto: colore vivo proprio. da qui in su: famiglia blu
+
+  // famiglia blu: sfumature diverse ma sempre blu — così i tipi numerosi si
+  // separano fra loro senza rompere la prevalenza del blu
+  const BLU_FAMIGLIA = ['#4C8DF6', '#7DD3FC', '#3A6FD8', '#5AA9E6', '#6C7FE0', '#2E86AB', '#5B7FE8'];
+  // colori vivi per i tipi pochi: ben distinti fra loro e dal blu
+  const VIVI = ['#E8934A', '#C983C4', '#8B84E0', '#3FAE9B', '#E8617A', '#E0C34C', '#5FD68C'];
+  const GRIGIO3 = [139, 149, 168];   // ripiego, non dovrebbe servire mai
+  const COL_LINEA = [176, 108, 136]; // viola/rosso tenue: gli archi si staccano dal blu delle sfere
+
   const FONDO = [9, 13, 20];
   const chiaro = (c, k) => c.map(v => v + (255 - v) * k);
   const scuro = (c, k) => c.map(v => v * (1 - k));
@@ -647,6 +676,24 @@ const Grafico = (function () {
   // interruttore su z, altrimenti le palline lampeggiano tutte mentre ruotano.
   const lontano = (c, p) => c.map((v, i) => FONDO[i] + (v - FONDO[i]) * p);
   const str = (c, a) => 'rgba(' + c[0].toFixed(0) + ',' + c[1].toFixed(0) + ',' + c[2].toFixed(0) + ',' + a + ')';
+  const esa3 = x => [parseInt(x.slice(1, 3), 16), parseInt(x.slice(3, 5), 16), parseInt(x.slice(5, 7), 16)];
+
+  // guarda quanti nodi ha ciascun tipo IN QUESTO DATO e assegna i colori: i
+  // numerosi in famiglia blu (sfumature diverse), i pochi con un colore vivo
+  // tutto loro. Ordinati dal più frequente, così il blu va sempre a chi
+  // davvero domina, non a un elenco fisso di lettere.
+  function assegnaColori(contaTipi) {
+    const lettere = Array.from(contaTipi.keys())
+      .sort((a, b) => (contaTipi.get(b) - contaTipi.get(a)) || a.localeCompare(b));
+    const p = new Map();
+    let iBlu = 0, iVivo = 0;
+    lettere.forEach(l => {
+      const n = contaTipi.get(l) || 0;
+      if (n >= SOGLIA_RARO) { p.set(l, esa3(BLU_FAMIGLIA[iBlu % BLU_FAMIGLIA.length])); iBlu++; }
+      else { p.set(l, esa3(VIVI[iVivo % VIVI.length])); iVivo++; }
+    });
+    return p;
+  }
 
   /* ----------------------------------------------------------------------
      LE MISURE DELLA SCATOLA
@@ -792,6 +839,12 @@ const Grafico = (function () {
       coppie.push([da, a]);
     });
 
+    // conta quanti nodi ha ciascun tipo IN QUESTO DATO: decide chi va in
+    // famiglia blu e chi resta con un colore vivo tutto suo (vedi I COLORI)
+    const contaTipi = new Map();
+    tipoDi.forEach(l => contaTipi.set(l, (contaTipi.get(l) || 0) + 1));
+    const palette = assegnaColori(contaTipi);
+
     // 4. la nuvola. Ordine stabile (alfabetico) così il seme fisso dà sempre
     //    la stessa disposizione a parità di dato.
     const chiavi = Array.from(tipoDi.keys()).sort();
@@ -840,14 +893,14 @@ const Grafico = (function () {
       archi.push({ a: i, b: j, flusso: 0, attenzione: 0, verso: true });
     });
 
-    return { nodi: nodi, archi: archi, perChiave: posizione, perNome: perNome };
+    return { nodi: nodi, archi: archi, perChiave: posizione, perNome: perNome, palette: palette };
   }
 
   /* ----------------------------------------------------------------------
      LO STATO
      -------------------------------------------------------------------- */
   let tela = null, ctx = null, osservatore = null;
-  let NODI = [], ARCHI = [], PER_CHIAVE = new Map(), PER_NOME = new Map();
+  let NODI = [], ARCHI = [], PER_CHIAVE = new Map(), PER_NOME = new Map(), PALETTE = new Map();
   let L = 0, A = 0, dpr = 1, cx = 0, cy = 0;
   let SC = 0, SCbersaglio = 1;
   let alpha = 1, GRAV = 0.012;                 // 'tondo' è la forma di partenza
@@ -857,6 +910,24 @@ const Grafico = (function () {
 
   const GRAVITA = { sparso: 0.006, tondo: 0.012, compatto: 0.022 };
   const PR = 560;                              // prospettiva
+
+  /* ----------------------------------------------------------------------
+     IL RESPIRO DEL PARLATO (Grafico.voce / voceFine)
+     La nuvola INTERA pulsa a tempo con la voce — non le singole sfere, la
+     taglia di una sfera resta quella dei collegamenti e non si tocca qui.
+     'parla': pulsa verso FUORI (si allarga e torna). 'ascolta': stessa
+     pulsazione ma verso DENTRO (si stringe e torna). Segue il RITMO vero:
+     voceLivello insegue voceBersaglio (l'ultimo campione arrivato da fuori)
+     con un po' d'inerzia (VOCE_TAU), non un seno a frequenza fissa — così
+     i campioni a scatti diventano un respiro fluido. Tocca SOLO la scala
+     della POSIZIONE in proietta(), mai SCsfere: la taglia resta intatta.
+     -------------------------------------------------------------------- */
+  const VOCE_AMPIEZZA = 0.08;   // ~8% della dimensione: contenuto, elegante
+  const VOCE_TAU = 0.15;        // secondi: quanto rapida insegue il livello vero
+  let voceChi = null;           // 'parla' | 'ascolta' | null (nessuno: fermo)
+  let voceBersaglio = 0;        // ultimo livello 0..1 arrivato da fuori
+  let voceLivello = 0;          // valore inseguito, con inerzia
+  let VOCE_SCALA = 1;           // ricalcolato una volta per fotogramma, usato in proietta()
 
   /* ----------------------------------------------------------------------
      INQUADRATURA
@@ -935,7 +1006,10 @@ const Grafico = (function () {
     const cxx = Math.cos(rotX), sxx = Math.sin(rotX);
     const y = n.y * cxx - z1 * sxx, z = n.y * sxx + z1 * cxx;
     const s = PR / (PR - z * 0.9);
-    return { X: cx + x * SC * s, Y: cy + y * SC * s, z: z, s: s };
+    // il respiro del parlato tocca SOLO la scala della posizione: la taglia
+    // delle sfere (SCsfere, in disegna) non la vede e resta quella di sempre
+    const scPulsata = SC * VOCE_SCALA;
+    return { X: cx + x * scPulsata * s, Y: cy + y * scPulsata * s, z: z, s: s };
   }
 
   /* ----------------------------------------------------------------------
@@ -948,11 +1022,28 @@ const Grafico = (function () {
      L'arco è PIENO se tutti e due i capi sono accesi dalla stessa sessione,
      più tenue se ne è acceso uno solo: pretendere che siano accesi tutti e due
      vorrebbe dire non vedere mai un arco animato, con seicento oggetti.
+
+     IL VERSO DEL TRATTINO — REGOLA DI SANTE, DA RISPETTARE ALLA LETTERA:
+       scrive: il trattino ESCE dalla sfera che scrive e va verso l'altra.
+       legge:  il trattino va DALL'ALTRA verso la sfera che legge.
+     a.verso === true vuol dire "il trattino corre da a.a verso a.b" (vedi
+     disegna()). Quindi: se la sorgente sta nel capo 'a' e scrive, il flusso
+     ESCE da 'a' verso 'b' → verso = true = scrive. Se la sorgente sta nel
+     capo 'b' e scrive, il flusso esce da 'b' verso 'a', cioè il CONTRARIO
+     di "a verso b" → verso = !scrive. In breve: verso = sorgA ? scrive :
+     !scrive. QUI IL VERSO ERA STORICAMENTE INVERTITO (un dato letto sembrava
+     scritto): non rigirarlo di nuovo.
+
+     RAFFREDDAMENTO: una trentina di secondi di discesa morbida — non un
+     lampo — così quando una sessione lascia un oggetto se ne vede ancora la
+     scia del lavoro appena fatto.
      -------------------------------------------------------------------- */
+  const RAFFREDDAMENTO_SEC = 30;
+
   function raffredda(dt) {
     NODI.forEach(n => {
       if (!n.chi) {
-        n.acceso = Math.max(0, n.acceso - dt / (n.riflesso > 0 ? 2.5 : 8));
+        n.acceso = Math.max(0, n.acceso - dt / RAFFREDDAMENTO_SEC);
         n.pensa = Math.max(0, n.pensa - dt / 8);
       }
     });
@@ -967,8 +1058,9 @@ const Grafico = (function () {
       if (meta > 0) {
         const acceso = sorgA ? A1 : B1;
         const scrive = acceso.az === 'scrive';
-        // true = il trattino corre da a.a verso a.b
-        a.verso = sorgA ? !scrive : scrive;
+        // verso giusto (vedi il commento sopra): scrive esce dalla sorgente,
+        // legge entra nella sorgente. NON invertire.
+        a.verso = sorgA ? scrive : !scrive;
         // CHI RICEVE IL RAGGIO SI ACCENDE: se il dato passa di lì, quell'oggetto
         // è in gioco quanto quello su cui si sta lavorando, solo in seconda fila.
         const altro = sorgA ? B1 : A1;
@@ -998,20 +1090,23 @@ const Grafico = (function () {
       .sort((u, v) => (u.a.flusso - v.a.flusso) || (u.zz - v.zz))
       .forEach(({ a }) => {
         const p1 = P[a.a], p2 = P[a.b], zz = (p1.z + p2.z) / 2,
-          op = 0.30 + 0.70 * (0.5 + 0.5 * Math.max(-1, Math.min(1, zz / 210)));
+          op = 0.28 + 0.62 * (0.5 + 0.5 * Math.max(-1, Math.min(1, zz / 210)));
         ctx.beginPath(); ctx.moveTo(p1.X, p1.Y); ctx.lineTo(p2.X, p2.Y);
-        ctx.strokeStyle = 'rgba(132,170,228,' + ((0.13 + a.flusso * 0.34 + (a.attenzione || 0) * 0.20) * op) + ')';
-        // linee sottili: il collegamento si legge, non pesa
-        ctx.lineWidth = a.flusso > 0 ? 0.85 : 0.55;
+        // viola/rosso tenue: l'arco si stacca dal blu delle sfere, non lo ripete
+        ctx.strokeStyle = str(COL_LINEA, (0.11 + a.flusso * 0.30 + (a.attenzione || 0) * 0.18) * op);
+        // linee fini: il collegamento si legge, non pesa
+        ctx.lineWidth = a.flusso > 0 ? 0.75 : 0.42;
         ctx.stroke();
         if (trattini && a.flusso > 0.05) {
           const lung = Math.hypot(p2.X - p1.X, p2.Y - p1.Y),
             quanti = Math.max(3, Math.min(11, Math.round(lung / 26)));
           for (let i = 0; i < quanti; i++) {
             let u = ((ora / 900) + i / quanti) % 1;
+            // a.verso lo decide raffredda(): true = corre da a.a verso a.b.
+            // NON invertire qui il senso: il verso giusto si decide una volta sola, là.
             if (a.verso === false) u = 1 - u;
             const X = p1.X + (p2.X - p1.X) * u, Y = p1.Y + (p2.Y - p1.Y) * u;
-            ctx.beginPath(); ctx.arc(X, Y, 1.2, 0, 6.283);
+            ctx.beginPath(); ctx.arc(X, Y, 1.1, 0, 6.283);
             ctx.fillStyle = 'rgba(255,255,255,' + (a.flusso * (1 - Math.abs(u - 0.5) * 0.9) * op) + ')';
             ctx.fill();
           }
@@ -1024,31 +1119,42 @@ const Grafico = (function () {
       const prof = 0.34 + 0.66 * (0.5 + 0.5 * Math.max(-1, Math.min(1, p.z / 210)));
       const resp = n.pensa > 0 ? (0.42 + 0.30 * Math.sin(ora / 700)) * n.pensa : 0;
       const luce = Math.max(n.acceso, resp), rr = Math.max(RAGGIO_MINIMO, n.r * SCsfere * p.s);
+      const base = PALETTE.get(n.tp) || GRIGIO3;
 
       if (luce > 0.02) {
-        const R2 = rr + 13 * luce * p.s;
+        // la luce dell'attività è BIANCA, mai del colore del tipo — un po'
+        // più fine di prima: meno raggio, meno alone, resta uno strumento
+        const R2 = rr + 10 * luce * p.s;
         const g = ctx.createRadialGradient(p.X, p.Y, 0, p.X, p.Y, R2);
-        g.addColorStop(0, 'rgba(214,232,255,' + (0.30 * luce * prof) + ')');
+        g.addColorStop(0, 'rgba(255,255,255,' + (0.24 * luce * prof) + ')');
         g.addColorStop(1, 'rgba(255,255,255,0)');
         ctx.fillStyle = g; ctx.beginPath(); ctx.arc(p.X, p.Y, R2, 0, 6.283); ctx.fill();
       }
 
-      // sfera: la luce viene da alto-sinistra, come nel grafico vero.
-      // La luce non è un interruttore: il colore proprio si sbianca man mano.
-      // Così si distingue a colpo d'occhio chi lavora (bianco pieno) da chi è
-      // coinvolto (schiarito), senza che il secondo sembri spento.
-      const puro = luce <= 0 ? (N3[n.tp] || N3.t) : chiaro(N3[n.tp] || N3.t, Math.min(1, luce * 1.15));
-      // VIA DI MEZZO fra vetro e pieno: le sfere accese sono solide, quelle a
-      // riposo lasciano intravedere appena cosa hanno dietro. Il vetro dice
-      // qualcosa — che lì non si sta lavorando — invece di essere un effetto.
-      // La profondità si applica al COLORE (nebbia verso il fondo), non qui.
-      const opac = 0.72 + 0.28 * Math.max(luce, prof * 0.6);
-      const sf = ctx.createRadialGradient(p.X - rr * 0.36, p.Y - rr * 0.38, rr * 0.06, p.X, p.Y, rr * 1.06);
-      sf.addColorStop(0, str(lontano(chiaro(puro, 0.62), prof), opac));
+      // sfera DI VETRO: semitrasparente a riposo (si intravede cosa c'è
+      // dietro), quasi solida quando è accesa. La luce viene da alto-sinistra
+      // e non è un interruttore: il colore proprio si sbianca man mano, così
+      // si distingue a colpo d'occhio chi lavora (bianco pieno) da chi è
+      // coinvolto (schiarito) senza che il secondo sembri spento.
+      const puro = luce <= 0 ? base : chiaro(base, Math.min(1, luce * 1.15));
+      // opacità: poca a riposo (vetro), tanta se accesa — mai un disco piatto
+      const opac = 0.26 + 0.34 * prof + 0.40 * luce;
+      const sf = ctx.createRadialGradient(p.X - rr * 0.36, p.Y - rr * 0.38, rr * 0.05, p.X, p.Y, rr * 1.06);
+      sf.addColorStop(0, str(lontano(chiaro(puro, 0.68), prof), opac));
       sf.addColorStop(0.55, str(lontano(puro, prof), opac));
-      sf.addColorStop(1, str(lontano(scuro(puro, 0.58), prof), opac));
+      sf.addColorStop(1, str(lontano(scuro(puro, 0.55), prof), opac * 0.92));
       ctx.beginPath(); ctx.arc(p.X, p.Y, rr, 0, 6.283);
       ctx.fillStyle = sf; ctx.fill();
+
+      // specularità: un accenno di luce in alto a sinistra, come il vetro
+      // vero — non un disco piatto pieno
+      if (rr > 1.6) {
+        const spX = p.X - rr * 0.38, spY = p.Y - rr * 0.42, spR = rr * 0.55;
+        const sp = ctx.createRadialGradient(spX, spY, 0, spX, spY, spR);
+        sp.addColorStop(0, 'rgba(255,255,255,' + (0.50 * prof) + ')');
+        sp.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = sp; ctx.beginPath(); ctx.arc(spX, spY, spR, 0, 6.283); ctx.fill();
+      }
 
       if (n.pensa > 0.02) {
         const battito = 0.5 + 0.5 * Math.sin(ora / 700), raggio = rr + 3.5 + battito * 4.5;
@@ -1056,9 +1162,10 @@ const Grafico = (function () {
         ctx.strokeStyle = 'rgba(190,215,255,' + ((0.10 + 0.30 * (1 - battito)) * n.pensa * prof) + ')';
         ctx.lineWidth = 0.9; ctx.stroke();
       }
-      if (rr > 2.8) {
-        ctx.strokeStyle = str(lontano(chiaro(puro, 0.3), prof), 0.42);
-        ctx.lineWidth = 0.5; ctx.stroke();
+      // bordo/alone più chiaro del corpo: il segno del vetro, sottile
+      if (rr > 2.2) {
+        ctx.strokeStyle = str(lontano(chiaro(puro, 0.55), prof), 0.5);
+        ctx.lineWidth = 0.45; ctx.stroke();
       }
       if (nomi && luce > 0.45 && p.z >= 0) {
         ctx.font = '500 8.5px "IBM Plex Mono", ui-monospace, monospace';
@@ -1084,6 +1191,15 @@ const Grafico = (function () {
 
     SC += (SCbersaglio - SC) * Math.min(1, dt * 2.5);
     raffredda(dt);
+
+    // il respiro del parlato: insegue il livello vero con inerzia continua
+    // nel tempo (non a scatti di fotogramma), poi ne ricava la scala pulsata
+    const k = 1 - Math.exp(-dt / VOCE_TAU);
+    voceLivello += (voceBersaglio - voceLivello) * k;
+    const segnoVoce = voceChi === 'ascolta' ? -1 : (voceChi === 'parla' ? 1 : 0);
+    VOCE_SCALA = 1 + segnoVoce * voceLivello * VOCE_AMPIEZZA;
+
+    // la rotazione resta ORARIA, respiro o non respiro: qui non si tocca
     if (!trascina && ora > fermoFino) rotY += 0.055 * dt;
     disegna(ora);
   }
@@ -1107,7 +1223,7 @@ const Grafico = (function () {
   }
 
   /* ----------------------------------------------------------------------
-     LE SETTE VOCI DEL CONTRATTO
+     LE VOCI DEL CONTRATTO (vedi l'elenco in cima al file)
      -------------------------------------------------------------------- */
 
   // trova il nodo che corrisponde a una chiave di mappa_sistema o a un nome nudo
@@ -1131,6 +1247,7 @@ const Grafico = (function () {
     ARCHI = costruito.archi;
     PER_CHIAVE = costruito.perChiave;
     PER_NOME = costruito.perNome;
+    PALETTE = costruito.palette;
     // se la nuvola è cambiata si riassesta un po', senza ricominciare da capo
     if (cambiato) alpha = Math.max(alpha, 0.35);
     inquadra();
@@ -1153,8 +1270,9 @@ const Grafico = (function () {
 
       tela = canvas;
       ctx = canvas.getContext('2d');
-      NODI = []; ARCHI = []; PER_CHIAVE = new Map(); PER_NOME = new Map();
+      NODI = []; ARCHI = []; PER_CHIAVE = new Map(); PER_NOME = new Map(); PALETTE = new Map();
       SC = 0; alpha = 1; rotY = 0; rotX = -0.2; sospeso = false; contaFotogrammi = 0;
+      voceChi = null; voceBersaglio = 0; voceLivello = 0; VOCE_SCALA = 1;
 
       applicaDato(dato);
       misura();
@@ -1229,6 +1347,24 @@ const Grafico = (function () {
     /* quanti oggetti e quanti collegamenti si stanno disegnando */
     dimensione: function () {
       return { nodi: NODI.length, archi: ARCHI.length };
+    },
+
+    /* il respiro del parlato: livello 0..1 (l'ampiezza del suono in quel
+       momento), chi vale 'parla' (pulsa verso fuori) oppure 'ascolta' (pulsa
+       verso dentro). Va chiamata ripetutamente mentre dura il suono: qui si
+       tiene solo il bersaglio, l'inerzia che lo insegue sta nel fotogramma.
+       La rotazione oraria continua uguale, non la tocca. */
+    voce: function (livello, chi) {
+      voceChi = (chi === 'parla' || chi === 'ascolta') ? chi : null;
+      voceBersaglio = Math.max(0, Math.min(1, Number(livello) || 0));
+      return this;
+    },
+
+    /* torna a riposo: il bersaglio va a zero e l'inerzia ce lo riporta da
+       sola, morbido — mai uno scatto */
+    voceFine: function () {
+      voceBersaglio = 0;
+      return this;
     }
   };
 })();
@@ -1259,6 +1395,23 @@ const Grafico = (function () {
                                   ogni chiamata ricostruisce tutto da zero, mai doppioni
      Vetrina.allegati(m)          mostra gli `allegati` di una battuta come un pezzo
                                   JSON colorato; niente se sono vuoti o assenti
+
+     Vetrina.dai() riconosce anche le SEQUENZE DI PASSI dentro il testo (titoli
+     `## `/`### ` che iniziano con un numero o con passo/modifica/coppia, o
+     righe numerate `1)`/`1.` separate da una riga vuota o un blocco di
+     codice): quando ne trova almeno due, in barra compare l'interruttore
+     "uno alla volta" e la vetrina puo' mostrare i passi uno per volta, col
+     bottone "fatta" che li segna e passa al successivo. Un testo senza
+     sequenza si comporta esattamente come prima, interruttore compreso.
+
+     Vetrina.passi(testo, titolo)  forza la modalita' a passi su un testo,
+                                    bypassando il minimo di due confini
+     Vetrina.passoCorrente()       { indice, totale, titolo, fatto,
+                                      fattiTotali, vista } del passo a cui si
+                                    e' adesso, o null se non c'e' un documento
+                                    a passi
+     Vetrina.suPasso(f(info))      avvisa quando un passo viene segnato fatto
+                                    (non scrive da solo in nessun database)
      Vetrina.onCambio = f(indice, totale)
 
        ATTENZIONE a onCambio: `indice` è il NUMERO MOSTRATO, da 1 a totale —
@@ -1297,6 +1450,20 @@ const Vetrina = (function () {
   let ingrandita = false;
   let ecoTimer = null;
 
+  /* I PASSI — un documento a parte, che non c'entra con `pezzi`.
+     `docPassi` e' l'ultimo testo arrivato che si e' riconosciuto come una
+     sequenza di passi (o null se l'ultimo arrivato non lo era). `statiPassi`
+     invece NON si azzera mai da solo: tiene, per ogni documento (chiave =
+     la sua firma), quale passo si sta guardando e quali sono gia' segnati
+     "fatti" — cosi' se lo stesso documento ritorna in vetrina, i passi gia'
+     fatti restano fatti. Vive in memoria della pagina, non in localStorage:
+     sparisce solo se la pagina si ricarica. */
+  let docPassi = null;         // { firma, titolo, passi:[...], origine } oppure null
+  let statiPassi = Object.create(null);  // firma -> { correnteIdx, fatti:{idx:true} }
+  let vistaPassi = false;      // false = si vede `pezzi` (il documento intero), true = un passo alla volta
+  let elencoPassiAperto = false;
+  let onPassoFatto = null;     // registrato con Vetrina.suPasso(fn)
+
   /* GLI ARTEFATTI — una lista a parte, che non c'entra con `pezzi`.
      `pezzi` sono i blocchi tirati fuori dalla chat (Vetrina.dai); `artefatti`
      arrivano da fuori gia' pronti (Vetrina.artefatti) e vivono in una vista
@@ -1307,7 +1474,7 @@ const Vetrina = (function () {
   let artApertoId = null;     // id dell'artefatto aperto, o null = si vede l'elenco
 
   /* le parti del riquadro, riempite da monta() */
-  let elTitolo, elGenere, elOrigine, elConta, elCorpo, elEco, btnPrec, btnSucc, btnGrande, btnArt;
+  let elTitolo, elGenere, elOrigine, elConta, elCorpo, elEco, btnPrec, btnSucc, btnGrande, btnArt, btnModo;
 
   /* ========================================================================
      LO SCUDO
@@ -1479,6 +1646,321 @@ const Vetrina = (function () {
     }
 
     return taglia((p.lingua || 'testo') + ' — ' + righe + (righe === 1 ? ' riga' : ' righe'), TITOLO_MAX);
+  }
+
+  /* ========================================================================
+     I PASSI
+
+     Un documento e' "una sequenza di passi" quando dentro ci sono ALMENO due
+     confini riconoscibili, in uno di due modi (mai mischiati: se si trovano
+     almeno due titoli in stile markdown si usano quelli, altrimenti si
+     cercano le righe numerate):
+
+       - titoli `## ` o `### ` il cui testo comincia con un numero o con la
+         parola passo/modifica/coppia — `### coppia 3 — app.js`;
+       - righe numerate `1)`/`1.` a inizio riga, ma SOLO se fra una e la
+         successiva c'e' almeno una riga vuota o un blocco di codice: due
+         voci di un elenco scritte una sotto l'altra senza niente in mezzo
+         non sono "passi", sono un elenco puntato qualunque.
+
+     Un solo confine trovato non e' una sequenza: la vetrina si comporta
+     come se non ci fosse niente di speciale (nessuna regressione).
+     ====================================================================== */
+
+  const RE_INTESTAZIONE = /^(#{2,3})\s+(.+?)\s*$/;
+  const RE_INTESTAZIONE_INIZIO = /^(?:\d|passo\b|modifica\b|coppia\b)/i;
+  const RE_RIGA_NUMERATA = /^\s{0,3}(\d+)[.)]\s+(.+)$/;
+  const RE_RECINTO = /^(`{3,}|~{3,})/;
+
+  function rilevaConfini(righe) {
+    const intestazioni = [];
+    for (let i = 0; i < righe.length; i++) {
+      const m = righe[i].match(RE_INTESTAZIONE);
+      if (!m) continue;
+      const testo = m[2].trim();
+      if (RE_INTESTAZIONE_INIZIO.test(testo)) {
+        intestazioni.push({ indice: i, titolo: taglia(testo, 200) });
+      }
+    }
+    if (intestazioni.length >= 2) return { tipo: 'intestazione', confini: intestazioni };
+
+    const grezzi = [];
+    for (let i = 0; i < righe.length; i++) {
+      const m = righe[i].match(RE_RIGA_NUMERATA);
+      if (m) grezzi.push({ indice: i, titolo: taglia(m[2], 200), restoLinea: m[2] });
+    }
+    if (grezzi.length < 2) return null;
+
+    /* fra un confine tenuto e il prossimo candidato: riga vuota o recinto? */
+    function separati(a, b) {
+      for (let k = a + 1; k < b; k++) {
+        const t = righe[k].trim();
+        if (t === '' || RE_RECINTO.test(t)) return true;
+      }
+      return false;
+    }
+
+    const scelti = [grezzi[0]];
+    for (let i = 1; i < grezzi.length; i++) {
+      if (separati(scelti[scelti.length - 1].indice, grezzi[i].indice)) scelti.push(grezzi[i]);
+    }
+    if (scelti.length < 2) return null;
+    return { tipo: 'numerato', confini: scelti };
+  }
+
+  /* ------------------------------------------------------------------------
+     SPACCA BLOCCHI — la stessa estrazione che faceva Vetrina.dai() da sola:
+     riga per riga, dentro/fuori da un recinto di apici inversi, tabelle
+     riconosciute solo fuori dai recinti. Usata sia da dai() (sul testo
+     intero) sia da corpoDaRighe() (sul pezzo di testo di UN passo) — la
+     stessa strada per tutti e due, un solo posto dove il recinto si apre e
+     si chiude.
+     ---------------------------------------------------------------------- */
+  function spaccaBlocchi(righe) {
+    const trovati = [];
+
+    let dentro = false;       // dentro un recinto?
+    let recinto = '';         // gli apici che l'hanno aperto: si chiude con altrettanti
+    let lingua = '';
+    let raccolta = [];
+    let inizioBlocco = -1;
+
+    for (let i = 0; i < righe.length; i++) {
+      const r = righe[i];
+      const t = r.trim();
+      const apre = t.match(/^(`{3,}|~{3,})(.*)$/);
+
+      if (dentro) {
+        /* si chiude solo con lo stesso segno, lungo almeno quanto l'apertura */
+        if (apre && apre[1].charAt(0) === recinto.charAt(0) &&
+            apre[1].length >= recinto.length && apre[2].trim() === '') {
+          trovati.push({
+            genere: 'codice',
+            lingua: lingua,
+            contenuto: raccolta.join('\n'),
+            inizio: inizioBlocco,
+            fine: i
+          });
+          dentro = false; raccolta = []; lingua = '';
+        } else {
+          raccolta.push(r);
+        }
+        continue;
+      }
+
+      if (apre) {
+        dentro = true;
+        recinto = apre[1];
+        /* la lingua è la prima parola dopo gli apici: ```sql, ```js {qualcosa} */
+        lingua = (apre[2].trim().split(/[\s,{]/)[0] || '').toLowerCase();
+        if (lingua === 'javascript') lingua = 'js';
+        raccolta = [];
+        inizioBlocco = i;
+        continue;
+      }
+
+      /* fuori dai recinti: una tabella comincia se sotto c'è la riga dei trattini */
+      if (rigaTabella(r) && i + 1 < righe.length && rigaTrattini(righe[i + 1])) {
+        const blocco = [righe[i], righe[i + 1]];
+        let j = i + 2;
+        while (j < righe.length && rigaTabella(righe[j])) { blocco.push(righe[j]); j++; }
+        trovati.push({ genere: 'tabella', lingua: '', contenuto: blocco.join('\n'), inizio: i, fine: j - 1 });
+        i = j - 1;
+      }
+    }
+
+    /* recinto mai chiuso — succede sempre mentre la risposta sta ancora
+       arrivando. Si tiene lo stesso: meglio mostrarlo che perderlo. */
+    if (dentro && raccolta.length) {
+      trovati.push({ genere: 'codice', lingua: lingua, contenuto: raccolta.join('\n'), inizio: inizioBlocco, fine: righe.length - 1 });
+    }
+
+    return trovati;
+  }
+
+  /* dalle righe di UN passo: la prosa da una parte (senza i recinti), i
+     blocchi di codice/tabella dall'altra — stessa estrazione di Vetrina.dai,
+     vedi spaccaBlocchi piu' sopra. */
+  function corpoDaRighe(righe) {
+    const trovati = spaccaBlocchi(righe);
+    const dentroBlocco = Object.create(null);
+    trovati.forEach(function (b) {
+      for (let k = b.inizio; k <= b.fine; k++) dentroBlocco[k] = true;
+    });
+    const prosaRighe = [];
+    for (let k = 0; k < righe.length; k++) { if (!dentroBlocco[k]) prosaRighe.push(righe[k]); }
+    const testo = prosaRighe.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+    const blocchi = trovati
+      .filter(function (b) { return b.contenuto.trim() !== ''; })
+      .map(function (b) { return { genere: b.genere, lingua: b.lingua, contenuto: b.contenuto }; });
+    return { testo: testo, blocchi: blocchi };
+  }
+
+  /* dal testo grezzo all'elenco dei passi, o null se non e' una sequenza */
+  function costruisciPassi(righe) {
+    const conf = rilevaConfini(righe);
+    if (!conf) return null;
+    const confini = conf.confini;
+    const passi = [];
+    for (let i = 0; i < confini.length; i++) {
+      const inizio = confini[i].indice;
+      const fine = (i + 1 < confini.length) ? confini[i + 1].indice : righe.length;
+      let righeCorpo;
+      if (conf.tipo === 'intestazione') {
+        righeCorpo = righe.slice(inizio + 1, fine);          // il titolo non fa parte del corpo
+      } else {
+        righeCorpo = righe.slice(inizio, fine).slice();
+        righeCorpo[0] = confini[i].restoLinea;                // via il "2) " dalla prima riga
+      }
+      const corpo = corpoDaRighe(righeCorpo);
+      passi.push({
+        titolo: confini[i].titolo || ('passo ' + (i + 1)),
+        testo: corpo.testo,
+        blocchi: corpo.blocchi
+      });
+    }
+    return passi;
+  }
+
+  /* una firma corta e stabile del testo intero: serve solo per riconoscere
+     "e' lo stesso documento di prima", non deve essere crittografica */
+  function firmaTesto(t) {
+    const s = String(t);
+    let h = 5381;
+    for (let i = 0; i < s.length; i++) { h = ((h * 33) ^ s.charCodeAt(i)) >>> 0; }
+    return 't' + h.toString(16) + '_' + s.length;
+  }
+
+  /* chiamata da Vetrina.dai() ad ogni testo che arriva: riconosce (o smonta)
+     la sequenza di passi, senza toccare l'elenco dei pezzi ne' il valore che
+     dai() ritorna. Un testo senza sequenza spegne il modo passi — la vetrina
+     torna esattamente come prima, senza l'interruttore in barra. */
+  function provaImpostaPassi(testoGrezzo, righe, origine) {
+    const passi = costruisciPassi(righe);
+    if (!passi || passi.length < 2) {
+      const cambiato = !!docPassi;
+      docPassi = null;
+      vistaPassi = false;
+      elencoPassiAperto = false;
+      if (cambiato) disegna();
+      return;
+    }
+    const firma = firmaTesto(testoGrezzo);
+    if (!statiPassi[firma]) statiPassi[firma] = { correnteIdx: 0, fatti: Object.create(null) };
+    docPassi = { firma: firma, titolo: 'passi — ' + passi.length, passi: passi, origine: origine || '' };
+    vistaPassi = false;           // si riparte sempre da "tutto": il partitore lo sceglie a mano
+    elencoPassiAperto = false;
+    disegna();
+  }
+
+  function statoDocPassi() {
+    return docPassi ? statiPassi[docPassi.firma] : null;
+  }
+
+  function ridisegnaPassi() {
+    disegnaBarra();
+    disegnaCorpo();
+    if (elCorpo) elCorpo.scrollTop = 0;
+  }
+
+  function vaiAPasso(n) {
+    const stato = statoDocPassi();
+    if (!stato || !docPassi) return;
+    const tot = docPassi.passi.length;
+    stato.correnteIdx = Math.max(0, Math.min(tot - 1, n));
+    ridisegnaPassi();
+  }
+
+  function segnaPassoFatto() {
+    const stato = statoDocPassi();
+    if (!stato || !docPassi) return;
+    const tot = docPassi.passi.length;
+    const idx = Math.max(0, Math.min(tot - 1, stato.correnteIdx));
+    stato.fatti[idx] = true;
+    const fattiTotali = Object.keys(stato.fatti).length;
+    const info = {
+      indice: idx + 1,
+      totale: tot,
+      titolo: docPassi.passi[idx].titolo,
+      completo: fattiTotali === tot,
+      origine: docPassi.origine || ''
+    };
+    if (idx < tot - 1) stato.correnteIdx = idx + 1;   // si scopre il successivo
+    ridisegnaPassi();
+    if (typeof onPassoFatto === 'function') {
+      try { onPassoFatto(info); } catch (e) { /* chi ascolta non ci riguarda */ }
+    }
+  }
+
+  /* il disegno del corpo in modalita' "uno alla volta" */
+  function passiHtml() {
+    const stato = statoDocPassi();
+    if (!docPassi || !stato) return '<p class="vt-vuoto">nessun passo</p>';
+    const tot = docPassi.passi.length;
+    const idx = Math.max(0, Math.min(tot - 1, stato.correnteIdx));
+    const p = docPassi.passi[idx];
+    const fattiTotali = Object.keys(stato.fatti).length;
+    const percento = tot ? Math.round((fattiTotali / tot) * 100) : 0;
+
+    let h = '<div class="vt-passi">';
+
+    h += '<div class="vt-passi-testa">' +
+      '<span class="vt-passi-conta">passo ' + (idx + 1) + ' di ' + tot + '</span>' +
+      '<div class="vt-passi-barra"><div class="vt-passi-barra-int" style="width:' + percento + '%"></div></div>' +
+      '</div>';
+
+    h += '<button type="button" class="vt-btn vt-passi-elenco-btn" data-vt="passi-elenco-toggle" aria-expanded="' +
+      (elencoPassiAperto ? 'true' : 'false') + '">' +
+      (elencoPassiAperto ? '▾' : '▸') + ' ' + fattiTotali + ' di ' + tot + ' fatti — elenco</button>';
+
+    if (elencoPassiAperto) {
+      h += '<ul class="vt-passi-elenco">';
+      docPassi.passi.forEach(function (pp, i) {
+        const fatto = !!stato.fatti[i];
+        h += '<li><button type="button" class="vt-btn vt-passi-voce' +
+          (i === idx ? ' vt-passi-voce-corrente' : '') + '" data-vt="passi-vai" data-passo-idx="' + i + '">' +
+          '<span class="vt-passi-spunta">' + (fatto ? '✓' : '') + '</span>' +
+          '<span class="vt-passi-voce-titolo">' + scudo(pp.titolo) + '</span>' +
+          '</button></li>';
+      });
+      h += '</ul>';
+    }
+
+    h += '<div class="vt-passi-corpo">';
+    h += '<p class="vt-passi-titolo">' + scudo(p.titolo) + '</p>';
+    if (p.testo) h += '<p class="vt-passi-testo">' + scudo(p.testo) + '</p>';
+    p.blocchi.forEach(function (b) {
+      if (b.genere === 'tabella') {
+        const g = griglia(b.contenuto);
+        h += '<div class="vt-scorri"><table class="vt-tabella"><thead><tr>';
+        g.intestazioni.forEach(function (c) { h += '<th>' + scudo(c) + '</th>'; });
+        h += '</tr></thead><tbody>';
+        g.corpo.forEach(function (r) {
+          h += '<tr>';
+          for (let i = 0; i < g.intestazioni.length; i++) h += '<td>' + scudo(r[i] || '') + '</td>';
+          h += '</tr>';
+        });
+        h += '</tbody></table></div>';
+      } else {
+        const schermato = scudo(b.contenuto);
+        h += '<pre class="vt-pre"><code>' + colora(schermato, b.lingua) + '</code></pre>';
+      }
+    });
+    h += '</div>';
+
+    h += '<div class="vt-passi-piede">' +
+      '<button type="button" class="vt-btn" data-vt="passo-indietro"' + (idx <= 0 ? ' disabled' : '') + '>indietro</button>' +
+      '<button type="button" class="vt-btn" data-vt="passo-copia">copia</button>' +
+      '<button type="button" class="vt-btn vt-passi-fatta" data-vt="passo-fatta">' +
+      (idx === tot - 1 ? 'finito' : 'fatta') + '</button>' +
+      '</div>';
+
+    if (fattiTotali === tot && tot > 0) {
+      h += '<p class="vt-passi-fine">' + tot + ' passi su ' + tot + '</p>';
+    }
+
+    h += '</div>';
+    return h;
   }
 
   /* ========================================================================
@@ -1699,7 +2181,43 @@ const Vetrina = (function () {
     '.vt-art-desc{margin:0 14px 10px;font-size:12.5px;color:var(--tenue,#7A8798)}',
     '.vt-art-apri{display:inline-block;margin:0 14px 10px;font-size:11.5px;color:var(--blu,#4C8DF6);',
     '  text-decoration:none;border:1px solid rgba(76,141,246,.4);border-radius:5px;padding:3px 9px}',
-    '.vt-art-apri:hover{background:rgba(76,141,246,.12)}'
+    '.vt-art-apri:hover{background:rgba(76,141,246,.12)}',
+
+    /* ── PASSI: l'interruttore in barra si nasconde da solo quando non serve */
+    '.vt-nascosto{display:none}',
+
+    /* ── PASSI: il corpo in modalita' "uno alla volta" ────────────────── */
+    '.vt-passi{padding-bottom:2px}',
+    '.vt-passi-testa{display:flex;align-items:center;gap:10px;padding:10px 14px 8px}',
+    '.vt-passi-conta{flex:0 0 auto;font-family:var(--mono,ui-monospace,Menlo,monospace);',
+    '  font-size:11px;color:var(--tenue,#7A8798);font-variant-numeric:tabular-nums}',
+    '.vt-passi-barra{flex:1 1 auto;height:5px;border-radius:3px;',
+    '  background:var(--bordo,#1E2836);overflow:hidden}',
+    '.vt-passi-barra-int{height:100%;background:var(--blu,#4C8DF6);transition:width .2s}',
+
+    '.vt-passi-elenco-btn{display:block;width:calc(100% - 28px);margin:0 14px 4px;',
+    '  text-align:left;font-size:11px;padding:5px 8px}',
+    '.vt-passi-elenco{list-style:none;margin:0 14px 8px;padding:0;',
+    '  border:1px solid var(--bordo,#1E2836);border-radius:6px;overflow:hidden}',
+    '.vt-passi-voce{width:100%;display:flex;align-items:center;gap:8px;text-align:left;',
+    '  border:none;border-bottom:1px solid var(--bordo,#1E2836);border-radius:0;padding:6px 10px;',
+    '  font-size:11.5px}',
+    '.vt-passi-elenco li:last-child .vt-passi-voce{border-bottom:none}',
+    '.vt-passi-voce-corrente{color:var(--luce,#fff);background:rgba(76,141,246,.14)}',
+    '.vt-passi-spunta{flex:0 0 auto;width:1.2em;color:var(--ok,#3FAE9B);font-weight:700}',
+    '.vt-passi-voce-titolo{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;',
+    '  white-space:nowrap}',
+
+    '.vt-passi-titolo{margin:6px 14px 4px;font-size:13.5px;font-weight:600;color:var(--testo,#C9D2DE)}',
+    '.vt-passi-testo{margin:0 14px 8px;font-size:12.5px;line-height:1.5;',
+    '  color:var(--tenue,#7A8798);white-space:pre-wrap}',
+
+    '.vt-passi-piede{display:flex;gap:8px;align-items:center;padding:8px 14px;',
+    '  border-top:1px solid var(--bordo,#1E2836);position:sticky;bottom:0;',
+    '  background:var(--fondo,#090D14)}',
+    '.vt-passi-fatta{margin-left:auto;color:var(--ok,#3FAE9B);border-color:var(--ok,#3FAE9B)}',
+    '.vt-passi-fatta:hover{color:var(--luce,#fff);background:rgba(63,174,155,.16)}',
+    '.vt-passi-fine{margin:0 14px 10px;text-align:center;font-size:11.5px;color:var(--ok,#3FAE9B)}'
   ].join('\n');
 
   function iniettaCss() {
@@ -1727,6 +2245,11 @@ const Vetrina = (function () {
         artApertoId = null;
       }
       elCorpo.innerHTML = elencoArtefattiHtml();
+      return;
+    }
+
+    if (vistaPassi && docPassi) {
+      elCorpo.innerHTML = passiHtml();
       return;
     }
 
@@ -1772,6 +2295,16 @@ const Vetrina = (function () {
       elConta.textContent = String(artefatti.length);
       btnPrec.disabled = true;
       btnSucc.disabled = true;
+    } else if (vistaPassi && docPassi) {
+      const stato = statoDocPassi();
+      const tot = docPassi.passi.length;
+      const idx = stato ? Math.max(0, Math.min(tot - 1, stato.correnteIdx)) : 0;
+      elGenere.textContent = 'passi';
+      elTitolo.textContent = docPassi.passi[idx].titolo;
+      elOrigine.textContent = docPassi.origine || '';
+      elConta.textContent = (idx + 1) + ' / ' + tot;
+      btnPrec.disabled = true;
+      btnSucc.disabled = true;
     } else {
       const tot = pezzi.length;
       const p = corrente >= 0 ? pezzi[corrente] : null;
@@ -1792,6 +2325,15 @@ const Vetrina = (function () {
       btnArt.textContent = vistaArtefatti
         ? '‹ pezzi'
         : ('artefatti' + (artefatti.length ? ' (' + artefatti.length + ')' : ''));
+    }
+
+    /* l'interruttore tutto/passi: compare solo quando c'e' un documento a
+       passi da vedere e non si e' nel bel mezzo della vista artefatti */
+    if (btnModo) {
+      const mostra = !!docPassi && !vistaArtefatti;
+      btnModo.classList.toggle('vt-nascosto', !mostra);
+      btnModo.setAttribute('aria-pressed', vistaPassi ? 'true' : 'false');
+      btnModo.textContent = vistaPassi ? '‹ tutto' : 'uno alla volta';
     }
   }
 
@@ -1846,9 +2388,7 @@ const Vetrina = (function () {
     } catch (e) { return false; }
   }
 
-  function copia() {
-    if (corrente < 0) return;
-    const t = pezzi[corrente].contenuto;
+  function copiaTesto(t) {
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(t).then(
         function () { eco('copiato'); },
@@ -1858,6 +2398,25 @@ const Vetrina = (function () {
       const f = copiaVecchioModo(t);
       eco(f ? 'copiato' : 'non copiato', !f);
     }
+  }
+
+  function copia() {
+    if (corrente < 0) return;
+    copiaTesto(pezzi[corrente].contenuto);
+  }
+
+  /* copia il codice del passo corrente: se ce n'e' piu' di un blocco, tutti
+     insieme separati da una riga vuota — e' quello che serve per incollare
+     una modifica intera in un colpo solo */
+  function copiaPasso() {
+    const stato = statoDocPassi();
+    if (!stato || !docPassi) return;
+    const tot = docPassi.passi.length;
+    const idx = Math.max(0, Math.min(tot - 1, stato.correnteIdx));
+    const p = docPassi.passi[idx];
+    const testo = p.blocchi.map(function (b) { return b.contenuto; }).join('\n\n');
+    if (!testo) return;
+    copiaTesto(testo);
   }
 
   function ingrandisci(quale) {
@@ -1894,6 +2453,8 @@ const Vetrina = (function () {
             '<button type="button" class="vt-btn vt-nav" data-vt="prec" title="precedente">‹</button>' +
             '<button type="button" class="vt-btn vt-nav" data-vt="succ" title="successivo">›</button>' +
             '<button type="button" class="vt-btn" data-vt="copia">copia</button>' +
+            '<button type="button" class="vt-btn" data-vt="modo" aria-pressed="false"' +
+              ' title="Passa fra il documento intero e un passo alla volta">uno alla volta</button>' +
             '<button type="button" class="vt-btn" data-vt="artefatti" aria-pressed="false"' +
               ' title="Gli artefatti registrati in tabella">artefatti</button>' +
             '<button type="button" class="vt-btn" data-vt="grande" aria-pressed="false">ingrandisci</button>' +
@@ -1912,6 +2473,7 @@ const Vetrina = (function () {
       btnSucc   = radice.querySelector('[data-vt="succ"]');
       btnGrande = radice.querySelector('[data-vt="grande"]');
       btnArt    = radice.querySelector('[data-vt="artefatti"]');
+      btnModo   = radice.querySelector('[data-vt="modo"]');
 
       radice.addEventListener('click', function (ev) {
         const b = ev.target.closest ? ev.target.closest('.vt-btn') : null;
@@ -1925,6 +2487,22 @@ const Vetrina = (function () {
             vistaArtefatti = !vistaArtefatti;
             if (!vistaArtefatti) artApertoId = null;   // si rientra sempre dall'elenco
             disegna();
+          }
+          else if (che === 'modo') {
+            if (docPassi) { vistaPassi = !vistaPassi; disegna(); }
+          }
+          else if (che === 'passo-indietro') {
+            const st = statoDocPassi();
+            if (st) vaiAPasso(st.correnteIdx - 1);
+          }
+          else if (che === 'passo-fatta') segnaPassoFatto();
+          else if (che === 'passo-copia') copiaPasso();
+          else if (che === 'passi-elenco-toggle') {
+            elencoPassiAperto = !elencoPassiAperto;
+            ridisegnaPassi();
+          }
+          else if (che === 'passi-vai') {
+            vaiAPasso(parseInt(b.getAttribute('data-passo-idx'), 10));
           }
           return;
         }
@@ -1999,59 +2577,13 @@ const Vetrina = (function () {
       if (!testo) return 0;
 
       const righe = String(testo).split('\n');
-      const trovati = [];
 
-      let dentro = false;       // dentro un recinto?
-      let recinto = '';         // gli apici che l'hanno aperto: si chiude con altrettanti
-      let lingua = '';
-      let raccolta = [];
+      /* il riconoscimento dei passi e' un affare a parte: non tocca ne'
+         l'elenco dei pezzi qui sotto ne' il valore che questa funzione
+         ritorna — vedi la sezione I PASSI, piu' sopra nel file */
+      provaImpostaPassi(testo, righe, origine);
 
-      for (let i = 0; i < righe.length; i++) {
-        const r = righe[i];
-        const t = r.trim();
-        const apre = t.match(/^(`{3,}|~{3,})(.*)$/);
-
-        if (dentro) {
-          /* si chiude solo con lo stesso segno, lungo almeno quanto l'apertura */
-          if (apre && apre[1].charAt(0) === recinto.charAt(0) &&
-              apre[1].length >= recinto.length && apre[2].trim() === '') {
-            trovati.push({
-              genere: 'codice',
-              lingua: lingua,
-              contenuto: raccolta.join('\n')
-            });
-            dentro = false; raccolta = []; lingua = '';
-          } else {
-            raccolta.push(r);
-          }
-          continue;
-        }
-
-        if (apre) {
-          dentro = true;
-          recinto = apre[1];
-          /* la lingua è la prima parola dopo gli apici: ```sql, ```js {qualcosa} */
-          lingua = (apre[2].trim().split(/[\s,{]/)[0] || '').toLowerCase();
-          if (lingua === 'javascript') lingua = 'js';
-          raccolta = [];
-          continue;
-        }
-
-        /* fuori dai recinti: una tabella comincia se sotto c'è la riga dei trattini */
-        if (rigaTabella(r) && i + 1 < righe.length && rigaTrattini(righe[i + 1])) {
-          const blocco = [righe[i], righe[i + 1]];
-          let j = i + 2;
-          while (j < righe.length && rigaTabella(righe[j])) { blocco.push(righe[j]); j++; }
-          trovati.push({ genere: 'tabella', lingua: '', contenuto: blocco.join('\n') });
-          i = j - 1;
-        }
-      }
-
-      /* recinto mai chiuso — succede sempre mentre la risposta sta ancora
-         arrivando. Si tiene lo stesso: meglio mostrarlo che perderlo. */
-      if (dentro && raccolta.length) {
-        trovati.push({ genere: 'codice', lingua: lingua, contenuto: raccolta.join('\n') });
-      }
+      const trovati = spaccaBlocchi(righe);
 
       /* i blocchi che contengono solo spazi non sono niente da guardare */
       const buoni = trovati.filter(function (p) { return p.contenuto.trim() !== ''; });
@@ -2071,9 +2603,61 @@ const Vetrina = (function () {
       return buoni.length;
     },
 
+    /* ----------------------------------------------------------------------
+       PASSI — forza la modalita' "uno alla volta" su un testo, bypassando
+       il cancello dei due-confini-minimo di dai(): se il testo ha una
+       struttura riconoscibile la si usa, altrimenti diventa un passo solo
+       (con dentro comunque i suoi blocchi di codice, colorati). Serve per
+       chi vuole mostrare un testo come passi anche quando non arriva dalla
+       solita strada di dai().
+       -------------------------------------------------------------------- */
+    passi: function (testo, titolo) {
+      if (!testo) return this;
+      const righe = String(testo).split('\n');
+      let passi = costruisciPassi(righe);
+      if (!passi || !passi.length) {
+        const corpo = corpoDaRighe(righe);
+        passi = [{ titolo: titolo || 'passo 1', testo: corpo.testo, blocchi: corpo.blocchi }];
+      }
+      const firma = firmaTesto(testo);
+      if (!statiPassi[firma]) statiPassi[firma] = { correnteIdx: 0, fatti: Object.create(null) };
+      docPassi = { firma: firma, titolo: titolo || ('passi — ' + passi.length), passi: passi, origine: '' };
+      vistaArtefatti = false;
+      artApertoId = null;
+      vistaPassi = true;
+      elencoPassiAperto = false;
+      disegna();
+      return this;
+    },
+
+    /* a che punto siamo nel documento a passi corrente, o null se non ce n'e' uno */
+    passoCorrente: function () {
+      if (!docPassi) return null;
+      const stato = statoDocPassi();
+      const tot = docPassi.passi.length;
+      const idx = Math.max(0, Math.min(tot - 1, stato.correnteIdx));
+      return {
+        indice: idx + 1,
+        totale: tot,
+        titolo: docPassi.passi[idx].titolo,
+        fatto: !!stato.fatti[idx],
+        fattiTotali: Object.keys(stato.fatti).length,
+        vista: vistaPassi ? 'passi' : 'tutto'
+      };
+    },
+
+    /* avvisa quando l'utente dichiara un passo fatto (per registrarlo altrove) */
+    suPasso: function (fn) {
+      onPassoFatto = (typeof fn === 'function') ? fn : null;
+      return this;
+    },
+
     vuota: function () {
       pezzi = [];
       corrente = -1;
+      docPassi = null;
+      vistaPassi = false;
+      elencoPassiAperto = false;
       disegna();
       return this;
     },
@@ -4789,7 +5373,9 @@ if (typeof window !== 'undefined') window.Bocca = Bocca;
    fascia disegna esattamente quello, e nient'altro.
 
    NON FA RETE. Il dato arriva già pronto da una funzione del database che
-   qualcun altro chiama ogni pochi secondi e ce lo passa con dai().
+   qualcun altro chiama ogni pochi secondi e ce lo passa con dai(). L'unica
+   rete che questo file conosce e' quella che chi lo usa (app.js) fa passare
+   dentro dentro() — vedi PARTE B piu' sotto.
 
    ── IL PUNTO IMPORTANTE ───────────────────────────────────────────────────
    Lo `stato` da solo MENTE. Una sessione che crolla resta 'ingaggiata' per
@@ -4821,27 +5407,97 @@ if (typeof window !== 'undefined') window.Bocca = Bocca;
    che sono davvero cambiati), le nuove si aggiungono, le sparite si tolgono,
    e l'ordine si applica spostando i nodi esistenti, mai ricreandoli.
 
+   ── PARTE A — LE MORTE E LE CHIUSE SPARISCONO ─────────────────────────────
+   Sante, testuale: «Quelle chiuse o morte falle sparire dalla barra». La
+   fascia mostra quindi, di norma, solo le classi viva / pausa / pronta: la
+   classe spenta esiste ancora (serve a colorare la pastiglia se qualcuno la
+   rivuole), ma non finisce nella fascia da sola.
+
+   Il filtro e' qui, non nel database: conv_pagina_sessioni resta la fonte
+   unica di verita' e continua a restituire tutto, comprese le finite e le
+   morte viste nelle ultime 24 ore — e' un dato onesto, il filtro e' un
+   punto di vista sopra quel dato. Un piccolo interruttore, «mostra anche le
+   spente», le rimette in elenco: parte spento, e lo decide solo chi guarda.
+
+   Se il filtro svuota tutto (nessuna sessione viva, pausa o pronta), la
+   fascia NON sparisce e non lascia un buco: dice una riga onesta e breve.
+   Ce ne sono due, diverse apposta:
+     "nessuna sessione in questo momento"   → il database non ha dato niente
+     "nessuna sessione al lavoro"           → c'e' dato, ma e' tutto spento
+   Confonderle sarebbe un bugia piccola ma reale: la prima dice "non lo so",
+   la seconda dice "lo so, ed e' fermo tutto".
+
+   La sessione scelta (vedi PARTE B) resta a vista anche se e' spenta e il
+   filtro la escluderebbe: altrimenti sparirebbe da sotto il dito proprio
+   mentre la si guarda, e non ci sarebbe piu' modo di richiuderla cliccando.
+
+   ── PARTE B — SI SCEGLIE, E SI VEDE COSA STA FACENDO ──────────────────────
+   Sante, testuale: «devono essere selezionabili e devo vedere facendolo il
+   loro contenuto». Un clic (o Invio/spazio da tastiera) su una pastiglia
+   apre un pannello SOTTO la fascia — mai dentro, per non legarlo alla
+   classe «aperta» che stringe/allarga la fascia stessa, e con la sua
+   propria altezza massima e il suo proprio scorrimento, cosi' la fascia in
+   cima non cresce mai a dismisura. Un secondo clic sulla stessa pastiglia
+   chiude; un clic su un'altra sposta la scelta, mai due pannelli insieme.
+
+   Il pannello mostra SUBITO quel che gia' si sa da conv_pagina_sessioni (lo
+   stesso dato della pastiglia, per esteso: nome, stato, da quanto e' ferma,
+   versione delle istruzioni, compito, ultima riga di diario, e — il pezzo
+   che conta di piu' — gli OGGETTI CHE HA IN MANO, ognuno con l'azione:
+   legge, scrive o pensa). Il resto (diario completo, attivita', lavori)
+   arriva dopo, con una chiamata in piu' che questo modulo non fa da solo:
+   la scelta viene passata fuori con Sessioni.suScelta(fn), chi la riceve va
+   a interrogare conv_pagina_sessione e richiama Sessioni.dentro(dati) con
+   la risposta. Finche' non arriva, il pannello dice "sto leggendo il
+   resto...". Se la risposta arriva tardi — l'utente nel frattempo ha scelto
+   un'altra sessione, o ha richiuso — dentro() la scarta: si controlla che
+   il nome nella risposta sia ancora quello scelto ORA.
+
+   Ogni giro di dai() rinfresca anche il pannello aperto (stessi campi
+   sempre disponibili, stessa disciplina «scrivi solo se e' cambiato»), cosi'
+   il pannello non mente mentre resta aperto per minuti: se la sessione
+   scelta smette di esistere del tutto nel dato, il pannello si chiude da
+   solo, onestamente, invece di continuare a mostrare l'ultima fotografia.
+
    ── IL VESTITO ────────────────────────────────────────────────────────────
-   Lo mette il guscio della pagina. Qui si usano SOLO le classi concordate:
+   Il vestito della fascia e delle pastiglie lo mette il guscio della
+   pagina. Qui si usano SOLO le classi concordate:
      .sess                            su ogni pastiglia
      .viva .pausa .pronta .spenta     una sola, accanto a .sess
      .sess.vuoto                      la riga «nessuna sessione»
      .dett                            la riga di dettaglio dentro la pastiglia
    Le parti interne non inventano classi: sono tag (b, i, time) e i
-   riferimenti se li tiene il modulo. L'unico CSS iniettato è quello per
-   l'eco della conferma, che il guscio non può conoscere: prefisso `se-` e
-   colori solo via var(--nome, ripiego).
+   riferimenti se li tiene il modulo.
+
+   Quello che il guscio NON puo' conoscere in anticipo — perche' nasce con
+   questo file, non prima — il modulo se lo veste da solo, con un unico
+   <style> iniettato una volta sola, prefisso `se-`, colori solo via
+   var(--nome, ripiego): l'eco della conferma (.se-eco), l'anello della
+   pastiglia scelta (.se-scelta), l'interruttore delle spente (.se-switch) e
+   il pannello del contenuto (.se-pannello) con tutto quel che ci sta dentro.
 
    ── SICUREZZA ─────────────────────────────────────────────────────────────
-   Nomi di sessione e righe di diario arrivano dal database e non sono da
-   fidarsi. Tutto va a schermo con textContent. In questo file non esiste
-   una sola assegnazione a innerHTML: se un giorno ne compare una, è un bug.
+   Nomi di sessione, compiti, righe di diario, nomi di oggetti in mano: tutto
+   arriva dal database e non e' da fidarsi. Tutto va a schermo con
+   textContent (o proprieta' equivalenti che non interpretano marcatura,
+   come className su un elemento gia' creato da noi). In questo file non
+   esiste una sola assegnazione a innerHTML: se un giorno ne compare una, e'
+   un bug.
 
    CONTRATTO
      Sessioni.monta(elenco, opzioni)   elenco = l'elemento vuoto da riempire
                                        opzioni = { onNuova: funzione() }
-     Sessioni.dai(dato)                riceve il dato del database e aggiorna
-     Sessioni.conteggi()               l'ultimo conteggio ricevuto
+     Sessioni.dai(dato)                riceve il dato di conv_pagina_sessioni
+                                        e aggiorna fascia e pannello aperto
+     Sessioni.dentro(dati)             riceve il dato di conv_pagina_sessione
+                                        (diario completo, attivita', lavori)
+                                        e riempie il pannello, se e' ancora
+                                        la sessione scelta
+     Sessioni.suScelta(fn)             fn(nomeSessione) chiamata ogni volta
+                                        che l'utente APRE una sessione (non
+                                        alla chiusura): chi la riceve va a
+                                        interrogare conv_pagina_sessione
+     Sessioni.conteggi()               l'ultimo conteggio ricevuto dal database
      Sessioni.vive()                   quante sono DAVVERO vive, per la regola
    ========================================================================== */
 
@@ -4857,7 +5513,9 @@ const Sessioni = (function () {
      con «+2». Tre stanno in riga anche su schermo stretto. */
   const OGGETTI_IN_CHIARO = 3;
 
-  /* L'ultima riga di diario è prosa: va accorciata o mangia la fascia. */
+  /* L'ultima riga di diario è prosa: va accorciata o mangia la fascia.
+     Queste due valgono SOLO per la pastiglia compatta: il pannello mostra
+     tutto per esteso, non ha bisogno di accorciare niente. */
   const DIARIO_MAX = 72;
   const COMPITO_MAX = 60;
 
@@ -4881,12 +5539,27 @@ const Sessioni = (function () {
   let ecoTimer = null;
 
   let ultimoConteggio = null;        // esattamente com'è arrivato
-  let ultimeSessioni = [];           // già normalizzate, per vive()
+  let ultimeSessioni = [];           // già normalizzate, per vive() e per il pannello
   let datoInAttesa = null;           // dai() chiamata prima di monta(): non si perde
 
   let bottoneNuova = null;           // il bottone del guscio, id `nuovaSessione`
   let manoNuova = null;              // l'ascoltatore agganciato, per poterlo staccare
   let chiamataNuova = null;          // opzioni.onNuova
+
+  /* PARTE A — il filtro delle spente */
+  let mostraSpente = false;          // l'interruttore: spento di partenza
+  let elInterruttore = null;         // il <label> costruito da noi
+  let inputSpente = null;            // il checkbox dentro
+  let elTestoInterruttore = null;    // lo <span> col testo (per il conteggio)
+
+  /* PARTE B — la scelta e il pannello */
+  let selezionata = null;            // nome della sessione scelta, o null
+  let chiamataScelta = null;         // opzioni passata a suScelta()
+  let completoPer = null;            // nome a cui appartiene l'ultimo dentro() accettato
+  let completoDati = null;           // { diario, attivita, lavori } normalizzati, o null
+  let elPannello = null;             // il contenitore, costruito una volta
+  let pannelloEls = null;            // i pezzi interni, presi una volta
+  let pannelloCache = null;          // gli ultimi valori scritti, per non riscrivere
 
   /* ========================================================================
      LETTURE PRUDENTI
@@ -4940,11 +5613,25 @@ const Sessioni = (function () {
     return Infinity;
   }
 
+  /* I secondi trascorsi da una data ISO qualunque (diario, inizio/fine di
+     un'attivita', apertura/chiusura di un lavoro). null se non si legge:
+     qui NON si vuole Infinity, si vuole poter dire onestamente "non lo so"
+     con un trattino, non "e' fermo da sempre". */
+  function secondiFa(iso) {
+    const s = testo(iso);
+    if (!s) return null;
+    const t = Date.parse(s);
+    if (isNaN(t)) return null;
+    const sec = (Date.now() - t) / 1000;
+    return sec < 0 ? 0 : sec;
+  }
+
   /* ========================================================================
      IL TEMPO, BREVE E IN ITALIANO
-     Una funzione sola, usata ovunque: nella pastiglia, nel suggerimento,
-     nell'eco. Due funzioni diverse per la stessa cosa si allontanano nel
-     giro di un mese e la fascia comincia a contraddirsi da sola.
+     Una funzione sola, usata ovunque nella FASCIA: nella pastiglia, nel
+     suggerimento, nell'eco. Due funzioni diverse per la stessa cosa si
+     allontanano nel giro di un mese e la fascia comincia a contraddirsi da
+     sola.
 
        sotto 10 s   → «ora»
        sotto 1 min  → «12 s»
@@ -4979,6 +5666,62 @@ const Sessioni = (function () {
     return Math.floor(v / 86400) + ' g';
   }
 
+  /* Il tempo, per esteso, per il PANNELLO. La consegna vuole proprio queste
+     forme — "42 s", "3 min", "1 h 12 min" — e non l'abbreviazione compatta
+     di quando(): qui c'e' spazio, e "1 h 20" senza unita' sul secondo pezzo
+     si legge male fuori dal contesto della pastiglia. Due funzioni diverse
+     apposta: quando() resta quella gia' in uso (e gia' vista) nella fascia
+     e nel suggerimento al passaggio del mouse, non si tocca. */
+  function umano(secondi) {
+    if (secondi === null || secondi === undefined || secondi === '') return '—';
+    if (typeof secondi === 'boolean') return '—';
+
+    const s = typeof secondi === 'number' ? secondi : Number(secondi);
+    if (isNaN(s) || !isFinite(s)) return '—';
+    const v = s < 0 ? 0 : Math.floor(s);
+
+    if (v < 60) return v + ' s';
+    if (v < 3600) return Math.floor(v / 60) + ' min';
+
+    if (v < 86400) {
+      const ore = Math.floor(v / 3600);
+      const min = Math.floor((v % 3600) / 60);
+      return min === 0 ? ore + ' h' : ore + ' h ' + min + ' min';
+    }
+
+    if (v < 172800) return 'ieri';
+    return Math.floor(v / 86400) + ' g';
+  }
+
+  /* "quanto tempo fa" a partire da una data ISO, in forma umana. */
+  function faUmano(iso) {
+    const sec = secondiFa(iso);
+    return sec === null ? '—' : umano(sec);
+  }
+
+  /* Il campo `da` di un oggetto in mano (o di un'attivita') non ha una
+     forma garantita: puo' essere un numero di secondi, una stringa che e'
+     in realta' un numero, una data ISO, o un semplice pezzo di testo (chi
+     l'ha toccato). Si prova a leggerlo come tempo; se non si riesce, si
+     mostra cosi' com'e' — sempre testo, mai buttato via in silenzio. */
+  function daUmano(v) {
+    if (v === null || v === undefined) return '';
+    if (typeof v === 'number' && isFinite(v)) return umano(v);
+
+    const s = testo(v);
+    if (!s) return '';
+
+    if (/^-?\d+(\.\d+)?$/.test(s)) {
+      const n = Number(s);
+      if (isFinite(n)) return umano(n);
+    }
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
+      const sec = secondiFa(s);
+      if (sec !== null) return umano(sec);
+    }
+    return s;
+  }
+
   /* ========================================================================
      LA REGOLA
      Qui, e solo qui, si decide di che colore è una sessione. Chiunque altro
@@ -4993,14 +5736,16 @@ const Sessioni = (function () {
     if (st === 'ingaggiata') return secondi > SOGLIA_FERMA ? 'pausa' : 'viva';
 
     /* Stato sconosciuto — un valore nuovo aggiunto al database e non ancora
-       qui. Si mostra (nasconderla sarebbe peggio) ma non si dichiara viva:
-       una parola che non conosciamo non è una prova di vita. */
+       qui (ad es. un 'in_pausa' esplicito). Si mostra (nasconderla sarebbe
+       peggio) e si tratta come pausa: e' viva ma ferma, non e' una prova di
+       lavoro in corso e non e' spenta — la via di mezzo onesta. */
     return 'pausa';
   }
 
-  /* La parolina che si legge dentro la pastiglia. Il colore da solo non
-     basta: chi ha detto «non vedo le sessioni in funzione» deve poter
-     LEGGERE che quella è viva, non dedurlo da una sfumatura. */
+  /* La parolina che si legge dentro la pastiglia e in cima al pannello. Il
+     colore da solo non basta: chi ha detto «non vedo le sessioni in
+     funzione» deve poter LEGGERE che quella è viva, non dedurlo da una
+     sfumatura. */
   const PAROLA = {
     viva: 'al lavoro',
     pausa: 'ferma',
@@ -5014,7 +5759,27 @@ const Sessioni = (function () {
      controllare ogni campo dieci volte più in là. Le righe senza un nome
      utilizzabile si buttano: il nome è la chiave della mappa, e senza
      chiave la pastiglia non sa più a chi appartiene.
+
+     normalizzaRiga() lavora su UN oggetto sessione — la stessa forma arriva
+     sia dentro l'array `sessioni` di conv_pagina_sessioni, sia come campo
+     `sessione` di conv_pagina_sessione: un solo posto dove leggerla.
      ====================================================================== */
+  function normalizzaRiga(g) {
+    const nome = testo(g.sessione);
+    const secondi = eta(g);
+    return {
+      nome: nome,
+      stato: testo(g.stato),
+      secondi: secondi,
+      classe: classeDi(g.stato, secondi),
+      compito: testo(g.compito),
+      diario: testo(g.diario),
+      versione: typeof g.istruzioni_ver === 'number' ? g.istruzioni_ver : null,
+      oggetti: oggettiDi(g.oggetti),                // stringhe, per la riga compatta
+      oggettiCompleti: oggettiCompletiDi(g.oggetti) // oggetto/azione/da, per il pannello
+    };
+  }
+
   function normalizza(dato) {
     const grezze = dato && Array.isArray(dato.sessioni) ? dato.sessioni : [];
     const viste = new Set();
@@ -5029,22 +5794,13 @@ const Sessioni = (function () {
       if (viste.has(nome)) continue;      // doppione nel dato: vince il primo
       viste.add(nome);
 
-      const secondi = eta(g);
-      fuori.push({
-        nome: nome,
-        stato: testo(g.stato),
-        secondi: secondi,
-        classe: classeDi(g.stato, secondi),
-        compito: testo(g.compito),
-        diario: testo(g.diario),
-        versione: typeof g.istruzioni_ver === 'number' ? g.istruzioni_ver : null,
-        oggetti: oggettiDi(g.oggetti)
-      });
+      fuori.push(normalizzaRiga(g));
     }
     return fuori;
   }
 
-  /* Gli oggetti che la sessione sta toccando. Possono arrivare come oggetti
+  /* Gli oggetti che la sessione sta toccando, ridotti a nomi — per la riga
+     di dettaglio compatta della pastiglia. Possono arrivare come oggetti
      {oggetto, azione, da} o come semplici stringhe: si accettano entrambi. */
   function oggettiDi(lista) {
     if (!Array.isArray(lista)) return [];
@@ -5062,8 +5818,83 @@ const Sessioni = (function () {
     return fuori;
   }
 
+  /* Gli stessi oggetti, per esteso — oggetto, azione, da — per il
+     pannello: e' li' che si deve vedere SE la sessione legge o scrive, e la
+     riga compatta di oggettiDi() quel dettaglio lo butta via apposta. */
+  function oggettiCompletiDi(lista) {
+    if (!Array.isArray(lista)) return [];
+    const fuori = [];
+    for (let i = 0; i < lista.length; i++) {
+      const o = lista[i];
+      if (typeof o === 'string') {
+        const s = testo(o);
+        if (s) fuori.push({ oggetto: s, azione: '', da: null });
+      } else if (o && typeof o === 'object') {
+        const s = testo(o.oggetto);
+        if (s) fuori.push({
+          oggetto: s,
+          azione: testo(o.azione),
+          da: (o.da === undefined ? null : o.da)
+        });
+      }
+    }
+    return fuori;
+  }
+
+  /* Il diario completo (conv_pagina_sessione): {at, riga, lavoro_id}[]. Le
+     righe senza testo non si mostrano: non c'e' niente da leggere. */
+  function diarioDi(lista) {
+    if (!Array.isArray(lista)) return [];
+    const fuori = [];
+    for (let i = 0; i < lista.length; i++) {
+      const o = lista[i];
+      if (!o || typeof o !== 'object') continue;
+      const r = testo(o.riga);
+      if (!r) continue;
+      fuori.push({ at: testo(o.at), riga: r, lavoro_id: (o.lavoro_id === undefined ? null : o.lavoro_id) });
+    }
+    return fuori;
+  }
+
+  /* Le attivita' (conv_pagina_sessione): {oggetto, azione, da, a}[]. */
+  function attivitaDi(lista) {
+    if (!Array.isArray(lista)) return [];
+    const fuori = [];
+    for (let i = 0; i < lista.length; i++) {
+      const o = lista[i];
+      if (!o || typeof o !== 'object') continue;
+      const s = testo(o.oggetto);
+      if (!s) continue;
+      fuori.push({
+        oggetto: s,
+        azione: testo(o.azione),
+        da: (o.da === undefined ? null : o.da),
+        a: (o.a === undefined ? null : o.a)
+      });
+    }
+    return fuori;
+  }
+
+  /* I lavori (conv_pagina_sessione): {id, compito, stato, aperto_at, chiuso_at}[]. */
+  function lavoriDi(lista) {
+    if (!Array.isArray(lista)) return [];
+    const fuori = [];
+    for (let i = 0; i < lista.length; i++) {
+      const o = lista[i];
+      if (!o || typeof o !== 'object') continue;
+      fuori.push({
+        id: (o.id === undefined ? null : o.id),
+        compito: testo(o.compito),
+        stato: testo(o.stato),
+        aperto_at: testo(o.aperto_at),
+        chiuso_at: testo(o.chiuso_at)
+      });
+    }
+    return fuori;
+  }
+
   /* ========================================================================
-     LA RIGA DI DETTAGLIO
+     LA RIGA DI DETTAGLIO (pastiglia compatta)
      Il compito, poi gli oggetti (tre in chiaro, il resto riassunto), poi
      l'ultima riga di diario accorciata. Se non c'è niente NON si lascia il
      vuoto: una fascia con un buco sembra rotta. Si scrive una frase
@@ -5103,6 +5934,7 @@ const Sessioni = (function () {
     if (riga.classe === 'pausa' && riga.stato === 'ingaggiata') {
       parti.push('risulta ingaggiata ma è zitta da oltre ' + SOGLIA_FERMA + ' s');
     }
+    parti.push(riga.classe === 'spenta' ? 'clic per vedere il contenuto (era)' : 'clic per vedere il contenuto');
     return parti.join(' — ');
   }
 
@@ -5121,6 +5953,10 @@ const Sessioni = (function () {
     const nodo = doc.createElement('div');
     nodo.className = 'sess ' + riga.classe;
     nodo.setAttribute('data-sessione', riga.nome);
+    /* selezionabile: da mouse (clic) e da tastiera (Invio o spazio) */
+    nodo.setAttribute('role', 'button');
+    nodo.setAttribute('aria-pressed', 'false');
+    nodo.tabIndex = 0;
 
     const elNome = doc.createElement('b');
     const elStato = doc.createElement('i');
@@ -5132,6 +5968,16 @@ const Sessioni = (function () {
     nodo.appendChild(elStato);
     nodo.appendChild(elTempo);
     nodo.appendChild(elDett);
+
+    nodo.addEventListener('click', function () {
+      selezionaSuClic(nodo.getAttribute('data-sessione'));
+    });
+    nodo.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Enter' || ev.key === ' ' || ev.key === 'Spacebar') {
+        ev.preventDefault();
+        selezionaSuClic(nodo.getAttribute('data-sessione'));
+      }
+    });
 
     const scheda = {
       nodo: nodo,
@@ -5154,6 +6000,9 @@ const Sessioni = (function () {
     }
 
     if (scheda.vClasse !== riga.classe) {
+      /* il className si riscrive per intero: applicaSelezione() rimette
+         l'anello della scelta subito dopo, per ogni pastiglia — cosi' un
+         cambio di classe (viva -> pausa, ad es.) non la fa sparire */
       scheda.nodo.className = 'sess ' + riga.classe;
       scheda.vClasse = riga.classe;
     }
@@ -5215,32 +6064,55 @@ const Sessioni = (function () {
     }
   }
 
+  /* Chi resta in fascia, PARTE A: tutte se «mostra anche le spente» e'
+     acceso; altrimenti tutte tranne le spente — con UNA eccezione: la
+     sessione scelta resta comunque a vista, spenta o no, cosi' il clic che
+     la richiude resta possibile anche se nel frattempo e' finita. */
+  function visibiliPerFascia(ordinateComplete) {
+    if (mostraSpente) return ordinateComplete;
+    return ordinateComplete.filter(function (r) {
+      return r.classe !== 'spenta' || r.nome === selezionata;
+    });
+  }
+
   /* ========================================================================
      IL DISEGNO — il giro completo, chiamato da dai()
      Aggiungere, aggiornare, togliere, riordinare. In quest'ordine, e senza
-     mai svuotare la radice.
+     mai svuotare la radice. In coda: l'interruttore si aggiorna col numero
+     di spente nascoste, e il pannello — se e' aperto — si rinfresca.
      ====================================================================== */
   function disegna() {
     if (!radice) return;
 
-    const righe = ultimeSessioni;
-    const ordinate = ordina(righe);
+    const tutte = ultimeSessioni;
+    const ordinateComplete = ordina(tutte);
 
-    /* niente sessioni: una riga sola, tranquilla, e via */
-    if (!ordinate.length) {
+    let nSpente = 0;
+    for (let i = 0; i < ordinateComplete.length; i++) {
+      if (ordinateComplete[i].classe === 'spenta') nSpente++;
+    }
+    aggiornaInterruttore(mostraSpente ? 0 : nSpente);
+
+    const visibili = visibiliPerFascia(ordinateComplete);
+
+    /* niente da mostrare: una riga sola, tranquilla, e via. Il testo
+       distingue "il database non ha detto niente" da "ha detto tutto
+       spento": sono due fatti diversi. */
+    if (!visibili.length) {
       pastiglie.forEach(function (scheda) {
         if (scheda.nodo.parentNode === radice) radice.removeChild(scheda.nodo);
       });
       pastiglie.clear();
-      mostraVuoto(true);
+      mostraVuoto(tutte.length ? 'filtrate' : 'totale');
+      aggiornaPannelloVivo();
       return;
     }
-    mostraVuoto(false);
+    mostraVuoto('no');
 
     /* 1 — aggiorna quelle che ci sono, crea quelle nuove */
     const vive = new Set();
-    for (let i = 0; i < ordinate.length; i++) {
-      const riga = ordinate[i];
+    for (let i = 0; i < visibili.length; i++) {
+      const riga = visibili[i];
       vive.add(riga.nome);
 
       let scheda = pastiglie.get(riga.nome);
@@ -5253,7 +6125,7 @@ const Sessioni = (function () {
       }
     }
 
-    /* 2 — via quelle sparite dal dato */
+    /* 2 — via quelle sparite dal dato (o filtrate via) */
     const daTogliere = [];
     pastiglie.forEach(function (scheda, nome) {
       if (!vive.has(nome)) daTogliere.push(nome);
@@ -5265,25 +6137,39 @@ const Sessioni = (function () {
     }
 
     /* 3 — l'ordine, spostando i nodi esistenti */
-    riordina(ordinate);
+    riordina(visibili);
+
+    /* 4 — PARTE B: l'anello della scelta e il pannello, sempre in coda */
+    applicaSelezione();
+    aggiornaPannelloVivo();
   }
 
   /* La riga «nessuna sessione». È una `.sess.vuoto` come da accordo col
-     guscio, tenuta da parte e riusata: anche lei non si ricrea. */
-  function mostraVuoto(si) {
+     guscio, tenuta da parte e riusata: anche lei non si ricrea.
+       modo === 'no'        → non si mostra (o si toglie se c'era)
+       modo === 'filtrate'  → "nessuna sessione al lavoro" (c'e' dato, e'
+                               tutto spento e il filtro lo nasconde)
+       modo === 'totale'    → "nessuna sessione in questo momento" (il
+                               database non ha restituito nessuna sessione) */
+  function mostraVuoto(modo) {
     if (!radice) return;
 
-    if (si) {
-      if (!nodoVuoto) {
-        const doc = radice.ownerDocument || document;
-        nodoVuoto = doc.createElement('div');
-        nodoVuoto.className = 'sess vuoto';
-        nodoVuoto.textContent = 'nessuna sessione in questo momento';
-      }
-      if (nodoVuoto.parentNode !== radice) radice.appendChild(nodoVuoto);
-    } else if (nodoVuoto && nodoVuoto.parentNode === radice) {
-      radice.removeChild(nodoVuoto);
+    if (modo === 'no') {
+      if (nodoVuoto && nodoVuoto.parentNode === radice) radice.removeChild(nodoVuoto);
+      return;
     }
+
+    const frase = modo === 'filtrate'
+      ? 'nessuna sessione al lavoro'
+      : 'nessuna sessione in questo momento';
+
+    if (!nodoVuoto) {
+      const doc = radice.ownerDocument || document;
+      nodoVuoto = doc.createElement('div');
+      nodoVuoto.className = 'sess vuoto';
+    }
+    if (nodoVuoto.textContent !== frase) nodoVuoto.textContent = frase;
+    if (nodoVuoto.parentNode !== radice) radice.appendChild(nodoVuoto);
   }
 
   /* ========================================================================
@@ -5293,17 +6179,62 @@ const Sessioni = (function () {
      In mezzo c'è un buco in cui l'utente non sa se il clic è servito, e
      riclicca. L'eco riempie quel buco, per due secondi, e poi se ne va.
      ====================================================================== */
-  const CSS_ECO =
+  const CSS_INIETTATO =
+    /* l'eco della conferma, accanto al bottone "+ nuova" */
     '.se-eco{font-size:11.5px;line-height:1.3;padding:4px 9px;border-radius:7px;' +
     'border:1px solid var(--bordo,#1E2836);background:var(--pannello,#111825);' +
     'color:var(--tenue,#7A8798);align-self:center;white-space:nowrap}' +
-    '.se-eco[hidden]{display:none}';
+    '.se-eco[hidden]{display:none}' +
 
-  function vestiEco(doc) {
+    /* le pastiglie sono cliccabili (PARTE B); l'anello dice quale e' scelta
+       senza cambiare il colore che gia' dice lo stato */
+    '.sess{cursor:pointer}' +
+    '.sess.se-scelta{box-shadow:0 0 0 2px var(--blu,#4C8DF6)}' +
+
+    /* l'interruttore "mostra anche le spente" (PARTE A) */
+    '.se-switch{display:flex;align-items:center;gap:5px;flex:0 0 auto;cursor:pointer;' +
+    'font-family:var(--mono,ui-monospace,Menlo,monospace);font-size:10px;letter-spacing:.04em;' +
+    'color:var(--tenue,#7A8798);white-space:nowrap}' +
+    '.se-switch:hover{color:var(--testo,#C9D2DE)}' +
+    '.se-switch input{margin:0;cursor:pointer}' +
+
+    /* il pannello del contenuto (PARTE B), sotto la fascia */
+    '.se-pannello{border-bottom:1px solid var(--bordo,#1E2836);background:var(--fondo2,#0E1420);' +
+    'padding:11px 14px;font-size:12px;line-height:1.5;color:var(--testo,#C9D2DE);' +
+    'max-height:46vh;overflow-y:auto}' +
+    '.se-pannello[hidden]{display:none}' +
+    '.se-riga1{display:flex;flex-wrap:wrap;align-items:baseline;gap:5px 10px;margin:0 0 7px}' +
+    '.se-riga1 b{font-family:var(--mono,ui-monospace,Menlo,monospace);font-size:13px;' +
+    'color:var(--luce,#FFFFFF);overflow-wrap:anywhere}' +
+    '.se-badge{font-size:10px;letter-spacing:.07em;text-transform:uppercase;padding:2px 7px;' +
+    'border-radius:999px;border:1px solid var(--bordo,#1E2836);color:var(--tenue,#7A8798)}' +
+    '.se-badge.viva{color:var(--blu,#4C8DF6);border-color:var(--blu,#4C8DF6)}' +
+    '.se-badge.pausa{color:var(--attesa,#E8A33D);border-color:var(--attesa,#E8A33D)}' +
+    '.se-badge.pronta{color:var(--ok,#3FAE9B);border-color:var(--ok,#3FAE9B)}' +
+    '.se-badge.spenta{color:var(--fioco,#4A5566);border-color:var(--bordo,#1E2836)}' +
+    '.se-crudo{color:var(--fioco,#4A5566);font-family:var(--mono,ui-monospace,Menlo,monospace);font-size:11px}' +
+    '.se-muta{color:var(--fioco,#4A5566)}' +
+    '.se-compito{margin:0 0 8px;overflow-wrap:anywhere}' +
+    '.se-sezione{margin-top:11px}' +
+    '.se-sezione>b{display:block;font-size:10px;letter-spacing:.09em;text-transform:uppercase;' +
+    'color:var(--fioco,#4A5566);margin-bottom:4px;font-weight:600}' +
+    '.se-oggetti,.se-diario,.se-attivita,.se-lavori{list-style:none;margin:0;padding:0;' +
+    'display:flex;flex-direction:column;gap:4px}' +
+    '.se-oggetti li,.se-attivita li{font-family:var(--mono,ui-monospace,Menlo,monospace);' +
+    'font-size:11.5px;overflow-wrap:anywhere;display:flex;flex-wrap:wrap;gap:6px;align-items:baseline}' +
+    '.se-diario li,.se-lavori li{font-size:11.5px;overflow-wrap:anywhere}' +
+    '.se-azione{font-size:10px;letter-spacing:.05em;text-transform:uppercase}' +
+    '.se-azione-legge{color:var(--blu,#4C8DF6)}' +
+    '.se-azione-scrive{color:var(--attesa,#E8A33D)}' +
+    '.se-azione-pensa{color:var(--ok,#3FAE9B)}' +
+    '.se-quando{font-family:var(--mono,ui-monospace,Menlo,monospace);font-size:10px;' +
+    'color:var(--fioco,#4A5566);margin-right:6px;flex:0 0 auto}';
+
+  function vestiPlus(doc) {
     if (doc.getElementById('se-stile-sessioni')) return;
     const stile = doc.createElement('style');
     stile.id = 'se-stile-sessioni';
-    stile.textContent = CSS_ECO;                      // CSS nostro, non dato altrui
+    stile.textContent = CSS_INIETTATO;                // CSS nostro, non dato altrui
     (doc.head || doc.documentElement).appendChild(stile);
   }
 
@@ -5312,7 +6243,7 @@ const Sessioni = (function () {
     const doc = radice.ownerDocument || document;
 
     if (!elEco) {
-      vestiEco(doc);
+      vestiPlus(doc);
       elEco = doc.createElement('div');
       elEco.className = 'se-eco';
       elEco.setAttribute('role', 'status');
@@ -5358,6 +6289,420 @@ const Sessioni = (function () {
   }
 
   /* ========================================================================
+     PARTE A — L'INTERRUTTORE "MOSTRA ANCHE LE SPENTE"
+     Costruito una volta, dentro la fascia (accanto al bottone "+ nuova" se
+     c'e', altrimenti in coda). Spento di partenza: e' l'utente a chiedere
+     di rivedere le morte, non il contrario.
+     ====================================================================== */
+  function costruisciInterruttore(doc, fasciaEl) {
+    if (elInterruttore && elInterruttore.parentNode) {
+      elInterruttore.parentNode.removeChild(elInterruttore);
+    }
+
+    const lab = doc.createElement('label');
+    lab.className = 'se-switch';
+
+    const inp = doc.createElement('input');
+    inp.type = 'checkbox';
+    inp.checked = mostraSpente;
+    inp.addEventListener('change', function () {
+      mostraSpente = !!inp.checked;
+      disegna();
+    });
+
+    const txt = doc.createElement('span');
+    txt.textContent = 'mostra anche le spente';
+
+    lab.appendChild(inp);
+    lab.appendChild(txt);
+
+    const btn = doc.getElementById ? doc.getElementById('nuovaSessione') : null;
+    if (btn && btn.parentNode === fasciaEl) fasciaEl.insertBefore(lab, btn);
+    else fasciaEl.appendChild(lab);
+
+    elInterruttore = lab;
+    inputSpente = inp;
+    elTestoInterruttore = txt;
+  }
+
+  /* Il numero fra parentesi dice quante sono nascoste ADESSO: se
+     l'interruttore e' gia' acceso non c'e' niente da svelare, e il numero
+     sparisce da solo (non avrebbe senso "mostra anche le spente (0)"). */
+  function aggiornaInterruttore(nNascoste) {
+    if (!elTestoInterruttore) return;
+    const base = 'mostra anche le spente';
+    const nuovo = nNascoste > 0 ? base + ' (' + nNascoste + ')' : base;
+    if (elTestoInterruttore.textContent !== nuovo) elTestoInterruttore.textContent = nuovo;
+  }
+
+  /* ========================================================================
+     PARTE B — IL PANNELLO DEL CONTENUTO
+     ====================================================================== */
+
+  /* Trova la riga (gia' normalizzata) di una sessione per nome, in TUTTO il
+     dato conosciuto — non solo fra quelle visibili in fascia: la scelta
+     deve restare leggibile anche se il filtro la nasconderebbe. */
+  function trovaRiga(nome) {
+    for (let i = 0; i < ultimeSessioni.length; i++) {
+      if (ultimeSessioni[i].nome === nome) return ultimeSessioni[i];
+    }
+    return null;
+  }
+
+  function costruisciPannello(doc, fasciaEl) {
+    if (elPannello && elPannello.parentNode) {
+      elPannello.parentNode.removeChild(elPannello);
+    }
+
+    const pan = doc.createElement('div');
+    pan.className = 'se-pannello';
+    pan.hidden = true;
+    pan.setAttribute('role', 'region');
+    pan.setAttribute('aria-label', 'Contenuto della sessione scelta');
+
+    const riga1 = doc.createElement('div');
+    riga1.className = 'se-riga1';
+    const elNome = doc.createElement('b');
+    const elBadge = doc.createElement('span'); elBadge.className = 'se-badge';
+    const elCrudo = doc.createElement('span'); elCrudo.className = 'se-crudo';
+    const elFerma = doc.createElement('span'); elFerma.className = 'se-crudo';
+    const elVer = doc.createElement('span'); elVer.className = 'se-crudo';
+    riga1.appendChild(elNome);
+    riga1.appendChild(elBadge);
+    riga1.appendChild(elCrudo);
+    riga1.appendChild(elFerma);
+    riga1.appendChild(elVer);
+
+    const elCompito = doc.createElement('p'); elCompito.className = 'se-compito';
+    const elUltimaNota = doc.createElement('p'); elUltimaNota.className = 'se-compito se-muta';
+
+    const secOggetti = doc.createElement('div'); secOggetti.className = 'se-sezione';
+    const titOggetti = doc.createElement('b'); titOggetti.textContent = 'oggetti in mano';
+    const listaOggetti = doc.createElement('ul'); listaOggetti.className = 'se-oggetti';
+    secOggetti.appendChild(titOggetti);
+    secOggetti.appendChild(listaOggetti);
+
+    const elAttesa = doc.createElement('p');
+    elAttesa.className = 'se-muta';
+    elAttesa.textContent = 'sto leggendo il resto...';
+
+    const secDiario = doc.createElement('div'); secDiario.className = 'se-sezione'; secDiario.hidden = true;
+    const titDiario = doc.createElement('b'); titDiario.textContent = 'diario completo';
+    const listaDiario = doc.createElement('ul'); listaDiario.className = 'se-diario';
+    secDiario.appendChild(titDiario);
+    secDiario.appendChild(listaDiario);
+
+    const secAttivita = doc.createElement('div'); secAttivita.className = 'se-sezione'; secAttivita.hidden = true;
+    const titAttivita = doc.createElement('b'); titAttivita.textContent = "attivita'";
+    const listaAttivita = doc.createElement('ul'); listaAttivita.className = 'se-attivita';
+    secAttivita.appendChild(titAttivita);
+    secAttivita.appendChild(listaAttivita);
+
+    const secLavori = doc.createElement('div'); secLavori.className = 'se-sezione'; secLavori.hidden = true;
+    const titLavori = doc.createElement('b'); titLavori.textContent = 'lavori';
+    const listaLavori = doc.createElement('ul'); listaLavori.className = 'se-lavori';
+    secLavori.appendChild(titLavori);
+    secLavori.appendChild(listaLavori);
+
+    pan.appendChild(riga1);
+    pan.appendChild(elCompito);
+    pan.appendChild(elUltimaNota);
+    pan.appendChild(secOggetti);
+    pan.appendChild(elAttesa);
+    pan.appendChild(secDiario);
+    pan.appendChild(secAttivita);
+    pan.appendChild(secLavori);
+
+    /* SOTTO la fascia, mai dentro: cosi' non e' legato alla classe
+       «aperta» che stringe/allarga la fascia stessa. */
+    const genitore = fasciaEl.parentNode;
+    if (genitore) genitore.insertBefore(pan, fasciaEl.nextSibling);
+    else fasciaEl.appendChild(pan);
+
+    elPannello = pan;
+    pannelloEls = {
+      nome: elNome, badge: elBadge, crudo: elCrudo, ferma: elFerma, ver: elVer,
+      compito: elCompito, ultimaNota: elUltimaNota,
+      listaOggetti: listaOggetti,
+      attesa: elAttesa,
+      secDiario: secDiario, listaDiario: listaDiario,
+      secAttivita: secAttivita, listaAttivita: listaAttivita,
+      secLavori: secLavori, listaLavori: listaLavori
+    };
+    pannelloCache = {
+      nome: null, badgeTesto: null, badgeClasse: null, crudo: null, ferma: null, ver: null,
+      compito: null, nota: null, oggImpronta: null,
+      diarioImpronta: null, attivitaImpronta: null, lavoriImpronta: null
+    };
+  }
+
+  /* L'anello della scelta su OGNI pastiglia esistente: si passa da qui a
+     ogni disegno, cosi' un cambio di classe (aggiorna() riscrive il
+     className per intero) non lo cancella per sbaglio. */
+  function applicaSelezione() {
+    pastiglie.forEach(function (scheda, nome) {
+      const scelta = nome === selezionata;
+      if (scheda.nodo.classList.contains('se-scelta') !== scelta) {
+        scheda.nodo.classList.toggle('se-scelta', scelta);
+      }
+      const av = scelta ? 'true' : 'false';
+      if (scheda.nodo.getAttribute('aria-pressed') !== av) {
+        scheda.nodo.setAttribute('aria-pressed', av);
+      }
+    });
+  }
+
+  function riempiOggetti(lista) {
+    if (!pannelloEls) return;
+    const impronta = JSON.stringify(lista);
+    if (pannelloCache.oggImpronta === impronta) return;
+    pannelloCache.oggImpronta = impronta;
+
+    const ul = pannelloEls.listaOggetti;
+    while (ul.firstChild) ul.removeChild(ul.firstChild);
+    const doc = ul.ownerDocument || document;
+
+    if (!lista.length) {
+      const li = doc.createElement('li');
+      li.textContent = 'nessun oggetto in mano al momento';
+      ul.appendChild(li);
+      return;
+    }
+
+    for (let i = 0; i < lista.length; i++) {
+      const o = lista[i];
+      const li = doc.createElement('li');
+
+      const nomeEl = doc.createElement('span');
+      nomeEl.textContent = o.oggetto;
+
+      const azEl = doc.createElement('span');
+      azEl.className = 'se-azione' + (o.azione ? ' se-azione-' + o.azione : '');
+      azEl.textContent = o.azione || 'tocca';
+
+      li.appendChild(nomeEl);
+      li.appendChild(azEl);
+
+      const d = daUmano(o.da);
+      if (d) {
+        const daEl = doc.createElement('span');
+        daEl.className = 'se-crudo';
+        daEl.textContent = 'da ' + d;
+        li.appendChild(daEl);
+      }
+
+      ul.appendChild(li);
+    }
+  }
+
+  /* I campi che vengono SEMPRE (da conv_pagina_sessioni, gia' disponibili
+     prima ancora che arrivi dentro()): nome, stato, da quanto e' ferma,
+     versione, compito, ultima nota, oggetti in mano. Si scrive solo quel
+     che e' cambiato, come per la pastiglia. */
+  function riempiBase(riga) {
+    if (!pannelloEls) return;
+    const P = pannelloEls;
+
+    if (pannelloCache.nome !== riga.nome) {
+      P.nome.textContent = riga.nome;
+      pannelloCache.nome = riga.nome;
+    }
+
+    const parola = PAROLA[riga.classe] || riga.classe;
+    if (pannelloCache.badgeTesto !== parola || pannelloCache.badgeClasse !== riga.classe) {
+      P.badge.textContent = parola;
+      P.badge.className = 'se-badge ' + riga.classe;
+      pannelloCache.badgeTesto = parola;
+      pannelloCache.badgeClasse = riga.classe;
+    }
+
+    const crudo = 'stato: ' + (riga.stato || 'ignoto');
+    if (pannelloCache.crudo !== crudo) { P.crudo.textContent = crudo; pannelloCache.crudo = crudo; }
+
+    const ferma = 'ferma da: ' + umano(riga.secondi);
+    if (pannelloCache.ferma !== ferma) { P.ferma.textContent = ferma; pannelloCache.ferma = ferma; }
+
+    const ver = riga.versione !== null ? ('istruzioni v' + riga.versione) : 'istruzioni: —';
+    if (pannelloCache.ver !== ver) { P.ver.textContent = ver; pannelloCache.ver = ver; }
+
+    const compito = riga.compito ? riga.compito : 'nessun compito indicato';
+    if (pannelloCache.compito !== compito) { P.compito.textContent = compito; pannelloCache.compito = compito; }
+
+    const nota = riga.diario ? riga.diario : 'ancora nessuna nota nel diario';
+    if (pannelloCache.nota !== nota) { P.ultimaNota.textContent = nota; pannelloCache.nota = nota; }
+
+    riempiOggetti(riga.oggettiCompleti);
+  }
+
+  function riempiDiario(lista) {
+    const P = pannelloEls;
+    const impronta = JSON.stringify(lista);
+    if (pannelloCache.diarioImpronta === impronta) { P.secDiario.hidden = false; return; }
+    pannelloCache.diarioImpronta = impronta;
+
+    const ul = P.listaDiario;
+    while (ul.firstChild) ul.removeChild(ul.firstChild);
+    const doc = ul.ownerDocument || document;
+
+    if (!lista.length) {
+      const li = doc.createElement('li');
+      li.textContent = 'nessuna riga di diario';
+      ul.appendChild(li);
+    } else {
+      for (let i = 0; i < lista.length; i++) {
+        const r = lista[i];
+        const li = doc.createElement('li');
+        const q = doc.createElement('span'); q.className = 'se-quando'; q.textContent = faUmano(r.at);
+        const t = doc.createElement('span'); t.textContent = r.riga;
+        li.appendChild(q);
+        li.appendChild(t);
+        ul.appendChild(li);
+      }
+    }
+    P.secDiario.hidden = false;
+  }
+
+  function riempiAttivita(lista) {
+    const P = pannelloEls;
+    const impronta = JSON.stringify(lista);
+    if (pannelloCache.attivitaImpronta === impronta) { P.secAttivita.hidden = false; return; }
+    pannelloCache.attivitaImpronta = impronta;
+
+    const ul = P.listaAttivita;
+    while (ul.firstChild) ul.removeChild(ul.firstChild);
+    const doc = ul.ownerDocument || document;
+
+    if (!lista.length) {
+      const li = doc.createElement('li');
+      li.textContent = "nessuna attivita' registrata";
+      ul.appendChild(li);
+    } else {
+      for (let i = 0; i < lista.length; i++) {
+        const r = lista[i];
+        const li = doc.createElement('li');
+
+        const nomeEl = doc.createElement('span'); nomeEl.textContent = r.oggetto;
+        const azEl = doc.createElement('span');
+        azEl.className = 'se-azione' + (r.azione ? ' se-azione-' + r.azione : '');
+        azEl.textContent = r.azione || 'tocca';
+
+        const perEl = doc.createElement('span'); perEl.className = 'se-crudo';
+        const da = daUmano(r.da);
+        const a = r.a ? daUmano(r.a) : '';
+        perEl.textContent = 'da: ' + (da || '—') + '  ·  a: ' + (a || 'ancora in corso');
+
+        li.appendChild(nomeEl);
+        li.appendChild(azEl);
+        li.appendChild(perEl);
+        ul.appendChild(li);
+      }
+    }
+    P.secAttivita.hidden = false;
+  }
+
+  function riempiLavori(lista) {
+    const P = pannelloEls;
+    const impronta = JSON.stringify(lista);
+    if (pannelloCache.lavoriImpronta === impronta) { P.secLavori.hidden = false; return; }
+    pannelloCache.lavoriImpronta = impronta;
+
+    const ul = P.listaLavori;
+    while (ul.firstChild) ul.removeChild(ul.firstChild);
+    const doc = ul.ownerDocument || document;
+
+    if (!lista.length) {
+      const li = doc.createElement('li');
+      li.textContent = 'nessun lavoro registrato';
+      ul.appendChild(li);
+    } else {
+      for (let i = 0; i < lista.length; i++) {
+        const r = lista[i];
+        const li = doc.createElement('li');
+        const idTxt = (r.id !== null && r.id !== undefined) ? ('#' + r.id + ' — ') : '';
+        const compito = r.compito ? r.compito : 'senza descrizione';
+        const stato = r.stato ? (' [' + r.stato + ']') : '';
+        const chiuso = r.chiuso_at ? (', chiuso ' + faUmano(r.chiuso_at) + ' fa') : ', ancora aperto';
+        /* stringa costruita da soli pezzi gia' passati per testo()/faUmano():
+           e' comunque textContent, non interpreta marcatura in ogni caso */
+        li.textContent = idTxt + compito + stato + ', aperto ' + faUmano(r.aperto_at) + ' fa' + chiuso;
+        ul.appendChild(li);
+      }
+    }
+    P.secLavori.hidden = false;
+  }
+
+  /* Le tre sezioni che arrivano solo con dentro(): finche' non sono pronte
+     (o non sono piu' quelle giuste, perche' la scelta e' cambiata) restano
+     nascoste e si vede solo "sto leggendo il resto...". */
+  function riempiCompleto() {
+    if (!pannelloEls) return;
+    const pronto = !!(completoDati && completoPer === selezionata);
+
+    pannelloEls.attesa.hidden = pronto;
+    if (!pronto) {
+      pannelloEls.secDiario.hidden = true;
+      pannelloEls.secAttivita.hidden = true;
+      pannelloEls.secLavori.hidden = true;
+      return;
+    }
+
+    riempiDiario(completoDati.diario);
+    riempiAttivita(completoDati.attivita);
+    riempiLavori(completoDati.lavori);
+  }
+
+  /* Chiamata da dai() a ogni giro (se una sessione e' scelta) e subito dopo
+     apriPannello()/dentro(): rilegge la riga corrente e riscrive quel che
+     serve. Se la sessione scelta non esiste piu' nel dato — non solo
+     "e' filtrata", proprio "non c'e' piu'" — il pannello si chiude da solo:
+     tenerlo aperto su una fotografia vecchia sarebbe una bugia. */
+  function aggiornaPannelloVivo() {
+    if (!selezionata || !elPannello) return;
+    const riga = trovaRiga(selezionata);
+    if (!riga) { chiudiPannello(); return; }
+    riempiBase(riga);
+    riempiCompleto();
+  }
+
+  function apriPannello(nome) {
+    selezionata = nome;
+    completoPer = null;
+    completoDati = null;
+    if (pannelloCache) {
+      pannelloCache.diarioImpronta = null;
+      pannelloCache.attivitaImpronta = null;
+      pannelloCache.lavoriImpronta = null;
+    }
+
+    applicaSelezione();
+    if (elPannello) elPannello.hidden = false;
+    aggiornaPannelloVivo();
+
+    if (typeof chiamataScelta === 'function') {
+      try { chiamataScelta(nome); } catch (e) { /* zitto, non e' affar nostro */ }
+    }
+  }
+
+  function chiudiPannello() {
+    selezionata = null;
+    completoPer = null;
+    completoDati = null;
+    applicaSelezione();
+    if (elPannello) elPannello.hidden = true;
+  }
+
+  function selezionaSuClic(nome) {
+    const n = testo(nome);
+    if (!n) return;
+    if (selezionata === n) { chiudiPannello(); return; }
+    apriPannello(n);
+    /* la scelta puo' aver bisogno di uscire dal filtro (una sessione
+       spenta, ad es.): un giro di disegno la rimette a vista subito,
+       senza aspettare il prossimo dai() */
+    disegna();
+  }
+
+  /* ========================================================================
      IL CONTRATTO
      ====================================================================== */
   const api = {
@@ -5373,13 +6718,26 @@ const Sessioni = (function () {
       elEco = null;
       if (ecoTimer) { clearTimeout(ecoTimer); ecoTimer = null; }
 
+      mostraSpente = false;
+      selezionata = null;
+      completoPer = null;
+      completoDati = null;
+      chiamataScelta = null;
+
       /* si parte da pulito: qualunque cosa ci fosse dentro non è nostra e
          non sapremmo aggiornarla */
       while (radice.firstChild) radice.removeChild(radice.firstChild);
 
+      const doc = radice.ownerDocument || document;
+      vestiPlus(doc);
+
+      const fasciaEl = radice.parentNode || radice;
+      costruisciInterruttore(doc, fasciaEl);
+      costruisciPannello(doc, fasciaEl);
+
       const opt = opzioni && typeof opzioni === 'object' ? opzioni : {};
       chiamataNuova = typeof opt.onNuova === 'function' ? opt.onNuova : null;
-      agganciaBottone(radice.ownerDocument || document);
+      agganciaBottone(doc);
 
       /* dai() può essere arrivata prima di monta(): non si butta via */
       if (datoInAttesa) {
@@ -5392,7 +6750,8 @@ const Sessioni = (function () {
       return this;
     },
 
-    /* Il dato del database, nella forma concordata. Chiamata di continuo. */
+    /* Il dato di conv_pagina_sessioni, nella forma concordata. Chiamata di
+       continuo: aggiorna la fascia E il pannello, se uno e' aperto. */
     dai: function (dato) {
       if (!dato || typeof dato !== 'object') {
         /* dato assente o rotto: si tiene l'ultimo buono e non si sbianca la
@@ -5407,6 +6766,47 @@ const Sessioni = (function () {
       if (!radice) { datoInAttesa = dato; return this; }
 
       disegna();
+      return this;
+    },
+
+    /* Il dato di conv_pagina_sessione: la risposta alla scelta segnalata da
+       suScelta(). Se nel frattempo la scelta e' cambiata (o e' stata
+       richiusa), la risposta arriva tardi e si scarta senza rumore: non e'
+       un errore, e' solo una corsa persa. */
+    dentro: function (dati) {
+      if (!dati || typeof dati !== 'object') return this;
+      if (!dati.sessione || typeof dati.sessione !== 'object') return this;
+
+      const nome = testo(dati.sessione.sessione);
+      if (!nome || nome !== selezionata) return this;
+
+      completoPer = nome;
+      completoDati = {
+        diario: diarioDi(dati.diario),
+        attivita: attivitaDi(dati.attivita),
+        lavori: lavoriDi(dati.lavori)
+      };
+
+      /* il dato fresco della sessione stessa: cosi' il pannello mostra
+         l'ultimo respiro anche se dai() non e' ancora ripassata */
+      const rigaFresca = normalizzaRiga(dati.sessione);
+      if (rigaFresca.nome) {
+        let trovato = false;
+        for (let i = 0; i < ultimeSessioni.length; i++) {
+          if (ultimeSessioni[i].nome === rigaFresca.nome) { ultimeSessioni[i] = rigaFresca; trovato = true; break; }
+        }
+        if (!trovato) ultimeSessioni.push(rigaFresca);
+      }
+
+      aggiornaPannelloVivo();
+      return this;
+    },
+
+    /* fn(nomeSessione) — chiamata ogni volta che l'utente APRE una
+       sessione (non alla chiusura). Chi la riceve va a interrogare
+       conv_pagina_sessione e richiama Sessioni.dentro(...) col risultato. */
+    suScelta: function (fn) {
+      chiamataScelta = typeof fn === 'function' ? fn : null;
       return this;
     },
 
@@ -5441,6 +6841,7 @@ const Sessioni = (function () {
     /* messe fuori perché la pagina di prova possa controllarle e perché la
        stessa scrittura del tempo serva anche fuori dalla fascia */
     quando: quando,
+    umano: umano,
     classeDi: classeDi,
     SOGLIA_FERMA: SOGLIA_FERMA
   };
@@ -7102,6 +8503,421 @@ const Permessi = (function () {
    normale, non ci finisce sempre */
 if (typeof window !== 'undefined') window.Permessi = Permessi;
 </script>
+<script data-pezzo="schermo.js">
+/* ============================================================================
+   Schermo — il bottone del tutto schermo, per il tablet.
+
+   Sante, testuale: «Metti in Athena la possibilita' con pulsante della
+   visione a tutto schermo, soprattutto per il tablet, e quando e' a tutto
+   schermo metti il tasto di riduzione a normale».
+
+   QUESTO MODULO SI MONTA DA SOLO. Non serve chiamare niente da app.js e non
+   serve toccare guscio.html: appena questo script gira (e gira in fondo al
+   corpo della pagina, dopo che tutto il resto e' gia' scritto, perche' cosi'
+   li mette monta.py) costruisce il proprio bottone, lo veste col proprio
+   CSS e lo attacca al corpo della pagina. Se un giorno serve smontarlo,
+   basta togliere questo file dall'elenco dei pezzi: nessun altro modulo ne
+   dipende, nessun altro modulo lo tocca.
+
+   ── DOVE STA IL BOTTONE ────────────────────────────────────────────────────
+   Fisso in alto a destra della pagina (position:fixed), sopra a tutto il
+   resto — anche sopra al grafico quando e' espanso (quello arriva a
+   z-index:60, questo bottone sta a 70). L'altezza da cima non e' un numero
+   fisso indovinato a occhio: la calcola guardando quanto e' alto l'header
+   vero in quel momento, e si mette a meta' di quell'altezza. Cosi', anche
+   se l'header va a capo su due righe (schermi stretti, tablet ruotato), il
+   bottone resta DENTRO la fascia dell'header e non scende a coprire la
+   fascia delle sessioni che sta subito sotto. Il microfono sta in fondo
+   alla pagina: non lo tocca mai nessuna di queste misure.
+
+   ── I TRE STATI (Schermo.stato()) ──────────────────────────────────────────
+     'normale'  la pagina sta come sempre.
+     'intero'   vero schermo intero del browser (Fullscreen API vera).
+     'largo'    ripiego finto: una classe sul body che leva le cornici e fa
+                riempire la finestra alla pagina. Serve per Safari su iPad,
+                dove requestFullscreen spesso non c'e' o non funziona come
+                sul desktop e il vero schermo intero non parte per niente,
+                in silenzio, senza un errore da intercettare.
+
+   Il bottone e' uno solo e cambia faccia da solo: icona, titolo e
+   aria-pressed seguono SEMPRE lo stato vero, mai quello che si vorrebbe.
+   Se lo schermo intero finisce da fuori — tasto Esc, gesto di sistema — il
+   bottone lo scopre dall'evento fullscreenchange (e dal suo alias
+   webkitfullscreenchange per Safari) e si rimette a posto da solo, senza
+   che nessuno l'abbia toccato.
+
+   ── PERCHE' SI VERIFICA E NON CI SI FIDA ───────────────────────────────────
+   Su Safari iPad, requestFullscreen (o webkitRequestFullscreen) puo' essere
+   chiamato e non succedere NIENTE: nessuna eccezione, nessun rifiuto della
+   promise, il browser ignora la richiesta e basta. Per questo, dopo aver
+   chiesto lo schermo intero vero, si aspetta un attimo e si controlla se e'
+   davvero successo (document.fullscreenElement valorizzato). Se non lo e',
+   si ripiega sulla modalita' larga finta. L'utente non deve accorgersi
+   della differenza: da fuori sembra comunque "adesso la pagina e' grande".
+
+   ── IL RESIZE ───────────────────────────────────────────────────────────────
+   La mappa 3D e la chat devono ridisegnarsi alla nuova misura. Questo
+   modulo non sa niente di loro e non chiama niente di loro: dopo ogni
+   cambio di stato vero (mai a parita', per non lanciare eventi a vuoto)
+   lancia un window.dispatchEvent(new Event('resize')). Chi ascolta il
+   resize, o osserva la propria tela con un ResizeObserver, si riadatta da
+   solo.
+
+   CONTRATTO
+     Schermo.stato()        'normale' | 'intero' | 'largo'
+     Schermo.intero()       prova a entrare (vero, o largo di ripiego)
+     Schermo.normale()      torna alla pagina normale, da qualunque stato
+     Schermo.suCambio(fn)   fn(nuovoStato) a ogni cambio vero di stato
+   ========================================================================== */
+
+const Schermo = (function () {
+  'use strict';
+
+  const ID_BOTTONE = 'schermoBottone';
+  const ID_STILE = 'sch-stile';
+  const CLASSE_LARGA = 'sch-largo';
+
+  // quanto si aspetta, dopo aver chiesto lo schermo intero vero, prima di
+  // controllare se e' davvero successo. Safari su iPad puo' ignorare la
+  // richiesta senza dire niente: senza questo controllo il bottone
+  // resterebbe a dire "sei a tutto schermo" mentre non e' vero niente.
+  const VERIFICA_MS = 450;
+
+  /* ------------------------------------------------------------------------
+     LO STATO DEL MODULO
+     ---------------------------------------------------------------------- */
+  let statoAttuale = 'normale';
+  const ascoltatori = [];   // [fn] passate a Schermo.suCambio
+  let bottone = null;
+  let riposizionaArmato = false;
+
+  /* ========================================================================
+     RILEVAMENTO DELLE API, CON I NOMI ALTERNATIVI DI SAFARI
+     ====================================================================== */
+
+  // l'elemento su cui si chiede lo schermo intero: tutta la pagina.
+  function elementoRadice() {
+    return document.documentElement;
+  }
+
+  function metodoRichiedi(el) {
+    return el.requestFullscreen || el.webkitRequestFullscreen ||
+           el.webkitRequestFullScreen || el.mozRequestFullScreen ||
+           el.msRequestFullscreen || null;
+  }
+
+  function metodoEsci(doc) {
+    return doc.exitFullscreen || doc.webkitExitFullscreen ||
+           doc.webkitCancelFullScreen || doc.mozCancelFullScreen ||
+           doc.msExitFullscreen || null;
+  }
+
+  function elementoInSchermoIntero(doc) {
+    return doc.fullscreenElement || doc.webkitFullscreenElement ||
+           doc.webkitCurrentFullScreenElement || doc.mozFullScreenElement ||
+           doc.msFullscreenElement || null;
+  }
+
+  function corpoHaClasseLarga() {
+    return document.body ? document.body.classList.contains(CLASSE_LARGA) : false;
+  }
+
+  /* ========================================================================
+     IL CAMBIO DI STATO — un solo punto di passaggio
+     Aggiorna il bottone, avvisa chi ascolta, lancia il resize. Solo se lo
+     stato e' DAVVERO cambiato: a parita' non si avvisa nessuno e non si
+     lancia niente, altrimenti un doppio controllo (tipico della verifica
+     di sicurezza qui sotto) sparerebbe resize a vuoto.
+     ====================================================================== */
+  function impostaStato(nuovo) {
+    aggiornaBottone();   // innocuo anche a parita': il bottone resta coerente
+    if (nuovo === statoAttuale) return;
+    statoAttuale = nuovo;
+    aggiornaBottone();
+
+    ascoltatori.slice().forEach(function (fn) {
+      // un ascoltatore rotto non deve fermare gli altri ne' il resize
+      try { fn(statoAttuale); } catch (e) { /* silenzio */ }
+    });
+
+    try { window.dispatchEvent(new Event('resize')); } catch (e) { /* silenzio */ }
+  }
+
+  /* ========================================================================
+     LA MODALITA' LARGA FINTA — il ripiego
+     ====================================================================== */
+  function entraLargo() {
+    if (document.body) document.body.classList.add(CLASSE_LARGA);
+    // su iOS, un piccolo scorrimento aiuta a nascondere la barra degli
+    // indirizzi di Safari; se non funziona non e' un danno, e' solo un
+    // tentativo in piu' verso "sembra tutto schermo".
+    try { window.scrollTo(0, 1); } catch (e) { /* silenzio */ }
+    impostaStato('largo');
+  }
+
+  function esciDaLargo() {
+    if (document.body) document.body.classList.remove(CLASSE_LARGA);
+    impostaStato('normale');
+  }
+
+  /* ========================================================================
+     ENTRARE — vero schermo intero, con ripiego automatico
+     ====================================================================== */
+  function provaEntrare() {
+    const el = elementoRadice();
+    const richiedi = metodoRichiedi(el);
+
+    // il metodo non esiste proprio (capita su iPad): niente da chiedere,
+    // si va dritti al ripiego.
+    if (!richiedi) { entraLargo(); return; }
+
+    let risultato;
+    try {
+      risultato = richiedi.call(el);
+    } catch (erroreSincrono) {
+      // chiamata rifiutata subito (permesso negato, contesto non valido):
+      // stesso ripiego.
+      entraLargo();
+      return;
+    }
+
+    let gia_deciso = false;
+    function verificaAvvenuto() {
+      if (gia_deciso) return;
+      gia_deciso = true;
+      if (elementoInSchermoIntero(document)) {
+        // e' successo davvero: ci pensa gia' fullscreenchange ad allineare
+        // lo stato, ma se per qualche motivo non fosse ancora passato lo
+        // mettiamo a posto qui, senza aspettare oltre.
+        impostaStato('intero');
+      } else {
+        // richiesto, ma il browser l'ha ignorato in silenzio: il caso vero
+        // di Safari su iPad. Ripiego.
+        entraLargo();
+      }
+    }
+
+    if (risultato && typeof risultato.then === 'function') {
+      // le implementazioni moderne tornano una promise: se rifiuta, ripiego
+      // immediato; se risolve, verifichiamo comunque dopo un attimo, perche'
+      // una promise risolta non e' una garanzia ferrea che il browser sia
+      // davvero passato a schermo intero su tutti i motori.
+      risultato.then(function () { setTimeout(verificaAvvenuto, VERIFICA_MS); })
+               .catch(function () { gia_deciso = true; entraLargo(); });
+    } else {
+      // le implementazioni vecchie di webkit non tornano niente: si
+      // aspetta e si controlla.
+      setTimeout(verificaAvvenuto, VERIFICA_MS);
+    }
+  }
+
+  /* ========================================================================
+     USCIRE — da qualunque dei due stati espansi
+     ====================================================================== */
+  function provaUscire() {
+    if (statoAttuale === 'largo') { esciDaLargo(); return; }
+    if (statoAttuale !== 'intero') return;   // gia' normale: niente da fare
+
+    const esci = metodoEsci(document);
+    if (!esci) return;   // non dovrebbe succedere se siamo entrati per questa via
+
+    try {
+      const risultato = esci.call(document);
+      if (risultato && typeof risultato.then === 'function') {
+        risultato.catch(function () { /* silenzio: fullscreenchange dira' la verita' */ });
+      }
+    } catch (e) { /* silenzio */ }
+    // niente impostaStato qui: finche' il browser non conferma con
+    // fullscreenchange, siamo ancora davvero a schermo intero, e il
+    // bottone deve continuare a dirlo.
+  }
+
+  /* ========================================================================
+     L'EVENTO DEL BROWSER — l'uscita puo' arrivare da fuori (Esc, gesto)
+     ====================================================================== */
+  function alCambioDelBrowser() {
+    const attivo = !!elementoInSchermoIntero(document);
+    if (attivo) {
+      // il vero schermo intero vince sempre sul ripiego finto
+      if (corpoHaClasseLarga()) document.body.classList.remove(CLASSE_LARGA);
+      impostaStato('intero');
+    } else {
+      impostaStato(corpoHaClasseLarga() ? 'largo' : 'normale');
+    }
+  }
+
+  /* ========================================================================
+     IL BOTTONE
+     ====================================================================== */
+
+  // due icone, una sola visibile per volta: lo decide il CSS guardando
+  // aria-pressed, non il JS scrivendo testo (stessa idea del bottone del
+  // grafico nel guscio: la scritta cambia da sola con la classe).
+  const SVG_BOTTONE =
+    '<svg class="sch-icona sch-entra" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+    'stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">' +
+    '<path d="M4 9V4h5"/><path d="M20 9V4h-5"/><path d="M4 15v5h5"/><path d="M20 15v5h-5"/>' +
+    '</svg>' +
+    '<svg class="sch-icona sch-esci" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+    'stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">' +
+    '<path d="M9 4v5H4"/><path d="M15 4v5h5"/><path d="M9 20v-5H4"/><path d="M15 20v-5h5"/>' +
+    '</svg>';
+
+  function testoStato() {
+    return statoAttuale === 'normale'
+      ? 'Vai a tutto schermo (utile su tablet)'
+      : 'Torna alla visualizzazione normale';
+  }
+
+  function aggiornaBottone() {
+    if (!bottone) return;
+    const espanso = statoAttuale !== 'normale';
+    bottone.setAttribute('aria-pressed', espanso ? 'true' : 'false');
+    bottone.title = testoStato();
+    bottone.setAttribute('aria-label', testoStato());
+  }
+
+  function alClic() {
+    if (statoAttuale === 'normale') provaEntrare();
+    else provaUscire();
+  }
+
+  /* ------------------------------------------------------------------------
+     LA POSIZIONE — calcolata dall'header vero, non un numero a occhio.
+     Cosi', anche se l'header va a capo (schermi stretti), il bottone resta
+     dentro la sua fascia e non scende a coprire quella delle sessioni.
+     ---------------------------------------------------------------------- */
+  function riposiziona() {
+    if (!bottone) return;
+    let cima = 8;
+    const intestazione = document.querySelector('header');
+    if (intestazione) {
+      const rettangolo = intestazione.getBoundingClientRect();
+      if (rettangolo.height >= 44) {
+        cima = Math.max(4, Math.round((rettangolo.height - 44) / 2));
+      } else if (rettangolo.height > 0) {
+        cima = 4;
+      }
+    }
+    bottone.style.top = 'calc(' + cima + 'px + env(safe-area-inset-top, 0px))';
+  }
+
+  function riposizionaAppenaPossibile() {
+    // piu' chiamate ravvicinate (resize, orientationchange) non devono far
+    // ricalcolare il layout piu' volte nello stesso fotogramma
+    if (riposizionaArmato) return;
+    riposizionaArmato = true;
+    (window.requestAnimationFrame || function (f) { setTimeout(f, 16); })(function () {
+      riposizionaArmato = false;
+      riposiziona();
+    });
+  }
+
+  /* ------------------------------------------------------------------------
+     IL FOGLIO DI STILE
+     Riusa le variabili di colore del guscio (--pannello, --bordo, --testo,
+     --blu, --luce): niente colori nuovi inventati qui. Un ripiego dopo la
+     virgola per ogni var(), nel caso questo file giri in una pagina di
+     prova senza il guscio.
+     ---------------------------------------------------------------------- */
+  const STILE =
+    '.sch-bottone{position:fixed;right:calc(8px + env(safe-area-inset-right,0px));' +
+    'top:calc(8px + env(safe-area-inset-top,0px));z-index:70;' +
+    'width:44px;height:44px;min-width:44px;min-height:44px;border-radius:10px;' +
+    'border:1px solid var(--bordo,#1E2836);background:var(--pannello,#111825);' +
+    'color:var(--testo,#C9D2DE);display:grid;place-items:center;cursor:pointer;' +
+    'box-shadow:0 2px 10px rgba(0,0,0,.4);touch-action:manipulation;' +
+    '-webkit-tap-highlight-color:transparent;' +
+    'transition:background .18s,border-color .18s,color .18s,transform .12s}' +
+    '.sch-bottone:hover{border-color:#31404F;color:var(--luce,#FFFFFF)}' +
+    '.sch-bottone:active{transform:translateY(1px)}' +
+    '.sch-bottone .sch-icona{width:20px;height:20px;pointer-events:none}' +
+    '.sch-bottone .sch-esci{display:none}' +
+    '.sch-bottone[aria-pressed="true"]{background:var(--blu,#4C8DF6);' +
+    'border-color:var(--blu,#4C8DF6);color:#06101F}' +
+    '.sch-bottone[aria-pressed="true"] .sch-entra{display:none}' +
+    '.sch-bottone[aria-pressed="true"] .sch-esci{display:block}' +
+    '@media (max-width:880px){.sch-bottone{right:calc(6px + env(safe-area-inset-right,0px))}}' +
+    /* la modalita' larga finta: leva le cornici, riempie la finestra.
+       Niente scorrimento orizzontale nuovo: html gia' lo vieta nel guscio. */
+    'body.' + CLASSE_LARGA + '{background:var(--fondo,#090D14)}' +
+    'body.' + CLASSE_LARGA + ' header,' +
+    'body.' + CLASSE_LARGA + ' #sessioniFascia,' +
+    'body.' + CLASSE_LARGA + ' footer{border-color:transparent}' +
+    'body.' + CLASSE_LARGA + ' #graficoBox,' +
+    'body.' + CLASSE_LARGA + ' .lato{border-color:transparent}' +
+    '@media (prefers-reduced-motion:reduce){.sch-bottone{transition:none}}';
+
+  function iniettaStile() {
+    if (typeof document === 'undefined') return;
+    if (document.getElementById(ID_STILE)) return;
+    const s = document.createElement('style');
+    s.id = ID_STILE;
+    s.textContent = STILE;
+    (document.head || document.documentElement).appendChild(s);
+  }
+
+  function costruisciBottone() {
+    let b = document.getElementById(ID_BOTTONE);
+    if (b) return b;   // gia' montato (es. rimontaggio in una prova): non duplicare
+    b = document.createElement('button');
+    b.id = ID_BOTTONE;
+    b.type = 'button';
+    b.className = 'sch-bottone';
+    b.setAttribute('aria-pressed', 'false');
+    b.innerHTML = SVG_BOTTONE;   // markup nostro, fisso: nessun dato esterno dentro
+    b.addEventListener('click', alClic);
+    (document.body || document.documentElement).appendChild(b);
+    return b;
+  }
+
+  /* ========================================================================
+     MONTAGGIO
+     ====================================================================== */
+  function monta() {
+    iniettaStile();
+    bottone = costruisciBottone();
+
+    // se la pagina si apre gia' a tutto schermo (raro, ma capita con certi
+    // lanciatori da tablet), il bottone parte nello stato giusto SENZA
+    // lanciare resize: non e' un cambio, e' come la pagina e' nata.
+    if (elementoInSchermoIntero(document)) statoAttuale = 'intero';
+    aggiornaBottone();
+    riposiziona();
+
+    document.addEventListener('fullscreenchange', alCambioDelBrowser);
+    document.addEventListener('webkitfullscreenchange', alCambioDelBrowser);
+    document.addEventListener('mozfullscreenchange', alCambioDelBrowser);
+    document.addEventListener('MSFullscreenChange', alCambioDelBrowser);
+
+    window.addEventListener('resize', riposizionaAppenaPossibile);
+    window.addEventListener('orientationchange', riposizionaAppenaPossibile);
+  }
+
+  if (document.body) {
+    monta();
+  } else {
+    document.addEventListener('DOMContentLoaded', monta);
+  }
+
+  /* ========================================================================
+     IL CONTRATTO VERSO FUORI
+     ====================================================================== */
+  return {
+    stato: function () { return statoAttuale; },
+    intero: function () { if (statoAttuale === 'normale') provaEntrare(); },
+    normale: function () { provaUscire(); },
+    suCambio: function (fn) {
+      if (typeof fn !== 'function') return function () {};
+      ascoltatori.push(fn);
+      return function smetti() {
+        const i = ascoltatori.indexOf(fn);
+        if (i >= 0) ascoltatori.splice(i, 1);
+      };
+    },
+  };
+})();
+</script>
 <script data-pezzo="app.js">
 // ─────────────────────────────────────────────────────────────────────────────
 // ATHENA — il cablaggio. Qui non c'è quasi niente di intelligente: gli attrezzi
@@ -7196,10 +9012,23 @@ function aggiungi(m){
   d.className = 'msg '+(m.chi==='sante'?'sante':'claude');
   // il testo della voce NON si scrive piu sotto la battuta: la voce si sente,
   // e la doppia copia riempiva la chat di roba gia letta (chiesto il 29/08).
+  if(m.id != null) d.dataset.id = String(m.id);
+  // i pulsantini copia/ascolta chiesti da Sante il 29/08: copia su OGNI battuta,
+  // ascolta solo su ATHENA. Piccoli e discreti (vedi CSS), MAI sulle provvisorie
+  // (questa funzione non le disegna: le provvisorie le fa mostraProvvisoria).
   d.innerHTML = '<div class="quando">'+(m.chi==='sante'?'tu':'ATHENA')+' · '+ora(m.at)+'</div>'
-    + html(m.testo);
+    + html(m.testo)
+    + '<div class="azioni">'
+    +   '<button class="az az-copia" type="button">copia</button>'
+    +   (m.chi==='claude' ? '<button class="az az-ascolta" type="button" aria-pressed="false">ascolta</button>' : '')
+    + '</div>';
   discorso.appendChild(d);
   discorso.scrollTop = discorso.scrollHeight;
+
+  const bottoneCopia = d.querySelector('.az-copia');
+  if(bottoneCopia) bottoneCopia.addEventListener('click', () => copia(m.testo, bottoneCopia));
+  const bottoneAscolta = d.querySelector('.az-ascolta');
+  if(bottoneAscolta) bottoneAscolta.addEventListener('click', () => leggi(m, true));
 
   // gli allegati (se ci sono) vanno in vetrina come una scheda leggibile
   try{ Vetrina.allegati(m); }catch(e){}
@@ -7207,8 +9036,62 @@ function aggiungi(m){
   if(m.chi === 'claude'){
     // il codice e le tabelle vanno in vetrina, dove si leggono davvero
     try{ Vetrina.dai(m.testo, 'ATHENA · '+ora(m.at)); }catch(e){}
-    if(m.testo_voce && !primoGiro) Bocca.parla(m.testo_voce);
+    if(m.testo_voce && !primoGiro) leggi(m, false);
   }
+}
+
+// ── copiare e ascoltare una battuta: chiesto da Sante il 29/08 ────────────
+// «copia» mette negli appunti il TESTO scritto (non l'HTML). «ascolta» rilegge
+// la battuta con Bocca: se qualcosa sta gia' leggendo lo ferma e comincia questa;
+// se si ribatte sulla battuta che sta gia' leggendo, si ferma e basta (interruttore).
+async function copia(testo, bottone){
+  const t = String(testo||'');
+  let riuscita = false;
+  try{
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      await navigator.clipboard.writeText(t);
+      riuscita = true;
+    }
+  }catch(e){ riuscita = false; }
+  if(!riuscita){
+    // ripiego per Safari e per le pagine non servite in https: una textarea nascosta
+    try{
+      const ta = document.createElement('textarea');
+      ta.value = t;
+      ta.setAttribute('readonly','');
+      ta.style.position = 'fixed'; ta.style.left = '-9999px'; ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.focus(); ta.select(); ta.setSelectionRange(0, t.length);
+      riuscita = document.execCommand('copy');
+      document.body.removeChild(ta);
+    }catch(e){ riuscita = false; }
+  }
+  const originale = bottone.textContent;
+  bottone.textContent = riuscita ? 'copiato' : 'non riuscito';
+  bottone.classList.toggle('fatto', riuscita);
+  setTimeout(() => { bottone.textContent = originale; bottone.classList.remove('fatto'); }, 2000);
+}
+
+let leggendoId = null;   // l'id della battuta che Bocca sta leggendo adesso, o null
+function segnaLettura(id, attiva){
+  const bt = discorso.querySelector('.msg[data-id="'+id+'"] .az-ascolta');
+  if(!bt) return;
+  bt.classList.toggle('in-lettura', attiva);
+  bt.setAttribute('aria-pressed', String(attiva));
+  bt.textContent = attiva ? 'ferma' : 'ascolta';
+}
+async function leggi(m, manuale){
+  const eraQuesta = (leggendoId === m.id);
+  try{ Bocca.zitta(); }catch(e){}
+  if(leggendoId != null){ segnaLettura(leggendoId, false); leggendoId = null; }
+  if(manuale && eraQuesta) return;   // era un interruttore: fermata, e basta
+  leggendoId = m.id;
+  segnaLettura(m.id, true);
+  // testo_voce se c'e', altrimenti testo: Bocca.parla() lo ripulisce gia' da sola
+  // dal markdown (codice, tabelle, #, *, `) dentro pulisci() -- vedi bocca.js
+  const testo = (m.testo_voce && m.testo_voce.trim()) ? m.testo_voce : m.testo;
+  try{ await Bocca.parla(testo); }catch(e){}
+  if(leggendoId === m.id){ segnaLettura(m.id, false); leggendoId = null; }
 }
 
 let ultimoGuaioMandato = '';
@@ -7272,8 +9155,28 @@ function confermata(m){
 // ── la voce e l'orecchio ─────────────────────────────────────────────────────
 // Mentre ATHENA parla l'orecchio si sospende: senza questo la pagina trascrive
 // la propria voce e si risponde da sola.
-Bocca.onInizio = () => { try{ Orecchio.sospendi(); }catch(e){} };
-Bocca.onFine   = () => { try{ Orecchio.riprendi(); }catch(e){} };
+let voceParlaTimer = null;
+function voceParlaLivelloSimulato(){
+  // inviluppo verosimile: sillabe che vanno e vengono dentro le frasi, non un
+  // seno regolare — finche' Bocca non avra' un vero analizzatore audio,
+  // questo e' un livello finto ma con lo stesso ritmo di un parlato vero.
+  const t = performance.now()/1000;
+  const frase = 0.5 + 0.5*Math.sin(t*0.6);
+  const pausaFrase = frase < 0.12 ? 0 : 1;
+  const sillabe = 0.5 + 0.5*Math.sin(t*7.3+1.1)*0.6 + 0.5*Math.sin(t*13.7+2.3)*0.4;
+  const rumore = (Math.random()-0.5)*0.10;
+  return Math.max(0, Math.min(1, pausaFrase*(0.25+0.75*sillabe)*(0.4+0.6*frase) + rumore));
+}
+Bocca.onInizio = () => {
+  try{ Orecchio.sospendi(); }catch(e){}
+  clearInterval(voceParlaTimer);
+  voceParlaTimer = setInterval(() => { try{ Grafico.voce(voceParlaLivelloSimulato(),'parla'); }catch(e){} }, 60);
+};
+Bocca.onFine   = () => {
+  try{ Orecchio.riprendi(); }catch(e){}
+  clearInterval(voceParlaTimer); voceParlaTimer = null;
+  try{ Grafico.voceFine(); }catch(e){}
+};
 Bocca.onGuaio  = messaggio => { istruzione.textContent = messaggio; segnala('voce: '+messaggio); };
 
 // il pallino vicino al titolo: acceso quando c'e' almeno una richiesta che
@@ -7328,7 +9231,7 @@ async function accendiMicrofono(){
   istruzione.innerHTML = '<b>Microfono acceso</b> — parla pure, quando taci mando';
   await Orecchio.accendi({
     onStato: s => { const v = statiOrecchio[s]; if(v) segno(v[0], v[1]); },
-    onLivello: v => { livelloBarra.style.width = Math.round(Math.min(1,v)*100)+'%'; },
+    onLivello: v => { livelloBarra.style.width = Math.round(Math.min(1,v)*100)+'%'; try{ Grafico.voce(v,'ascolta'); }catch(e){} },
     onGuaio: m => spegniMicrofono(m),
     onPezzo: async blob => {
       const t = await trascrivi(blob);
@@ -7708,6 +9611,13 @@ try{
   try{ Vetrina.monta($('#vetrinaBox')); }catch(e){}
   try{ Flusso.monta($('#flussoBox')); }catch(e){}
   try{ Sessioni.monta($('#sessioniElenco'), {onNuova: chiediSessione}); }catch(e){}
+  // il contenuto di una sessione scelta: sessioni.js segnala solo il NOME,
+  // la chiamata vera (e il richiamo con la risposta) le fa app.js
+  try{
+    Sessioni.suScelta(nome => rpc('conv_pagina_sessione', {p_pass:PASS, p_sessione:nome})
+      .then(dettaglio => { if(dettaglio) try{ Sessioni.dentro(dettaglio); }catch(e){} })
+      .catch(()=>{}));
+  }catch(e){}
   try{
     Permessi.monta($('#permessiBox'), {
       onDecide: (id, si, nota) => rpc('conv_pagina_decide',
