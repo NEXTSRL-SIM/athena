@@ -33,6 +33,22 @@
   /* il fuoco da tastiera si deve vedere sempre, su qualunque cosa lo riceva */
   :focus-visible{outline:2px solid var(--blu);outline-offset:2px;border-radius:4px}
 
+  /* ── la fascia della seconda fila ────────────────────────────────────────── */
+  /* Quando comanda un'altra finestra questa pagina e' FERMA del tutto. Prima
+     lo diceva una riga in fondo, accanto al microfono, dove non guarda
+     nessuno: si vedeva la mappa girare e si dava per rotto il resto della
+     pagina. Costato tre ore il 29/08. Adesso lo dice qui, in cima, e in cima
+     c'e' anche il bottone per prendersi il comando. */
+  #secondaFila{flex:0 0 auto;display:flex;align-items:center;gap:8px 14px;flex-wrap:wrap;
+    padding:11px 16px;background:#2A1F0C;border-bottom:1px solid #5C4415;
+    color:#F2D9A6;font-size:13.5px;line-height:1.4}
+  #secondaFila b{color:var(--attesa);font-weight:600}
+  #secondaFila .dettaglio{color:#C7AC77}
+  #usaQuesta{margin-left:auto;font:inherit;font-weight:600;font-size:13px;
+    background:var(--attesa);color:#1A1206;border:none;border-radius:6px;
+    padding:7px 14px;cursor:pointer;white-space:nowrap}
+  #usaQuesta:hover{background:#F2B75A}
+
   /* ── la barra in cima ────────────────────────────────────────────────────── */
   header{display:flex;align-items:center;gap:10px 12px;flex-wrap:wrap;padding:10px 16px;
     border-bottom:1px solid var(--bordo);background:var(--fondo2);flex:0 0 auto}
@@ -403,6 +419,17 @@
   </div>
 </div>
 
+<!-- ═══ LA FASCIA DELLA SECONDA FILA ═════════════════════════════════════════
+     Sta in cima a tutto, prima dell'intestazione, perche' dice l'unica cosa
+     che conta quando compare: questa pagina non sta lavorando. Nasce vuota e
+     nascosta; la accende e la spegne app.js sui cambi di Unica. -->
+<div id="secondaFila" hidden role="status">
+  <b>ATHENA è già aperta in un'altra finestra.</b>
+  <span class="dettaglio">Questa sta ferma: non legge il database, non ascolta e non disegna la mappa.</span>
+  <button id="usaQuesta" type="button"
+          title="Togli il comando all'altra finestra e fai ripartire questa">usa questa finestra</button>
+</div>
+
 <header>
   <h1>ATHENA</h1>
   <span class="sessione" id="nomeSessione">—</span>
@@ -600,6 +627,35 @@ const Grafico = (function () {
      -------------------------------------------------------------------- */
   const LARGHEZZA_LEGGERA = 420;   // sotto: metà passi di forza per fotogramma
   const LARGHEZZA_MINIMA = 320;    // sotto: niente trattini animati, niente nomi
+
+  /* QUANTO VALE UN'UNITÀ DI RAGGIO, IN PIXEL.
+
+     La taglia di una sfera dipende dai suoi COLLEGAMENTI — n.r = 1.7 +
+     radice(grado)*0.95, calcolato una volta sola in costruisci() — e quella
+     regola non si tocca. Quello che si tocca è la SCALA con cui quel numero
+     diventa pixel.
+
+     Prima era SC, la scala dell'inquadratura. Ma SC = riquadro*0.44/m, dove m
+     è l'estensione della nuvola, che cresce col NUMERO DI OGGETTI: la
+     repulsione allarga il grafo, m sale, SC scende. Con 612 oggetti SC
+     arrivava a 0,2 e TUTTE le sfere finivano schiacciate contro il minimo di
+     0,9 px — polvere grigia, tutte uguali, il grado non si vedeva più. Cioè:
+     la taglia dipendeva da quanti oggetti c'erano invece che da quanto era
+     grande il riquadro.
+
+     Adesso la scala ha un PAVIMENTO che dipende solo dalla misura del
+     riquadro. Nuvola piccola: vince SC e non cambia niente rispetto a prima.
+     Nuvola grande: vince il pavimento, le sfere restano visibili e le
+     proporzioni fra loro restano quelle dei collegamenti.
+
+     Il pavimento cresce col riquadro — è il riquadro a comandare, non il
+     numero di oggetti — ma si ferma: oltre quel punto SC è già più grande da
+     solo, e continuare a gonfiare le sfere le farebbe diventare palloni che
+     coprono i collegamenti invece di mostrarli. Misurato col riquadro
+     espanso a 1176x737: senza il tetto le sfere arrivavano a 26 px di raggio. */
+  const RIQUADRO_PER_UNITA = 300;   // px di lato del riquadro per un'unità di raggio
+  const PAVIMENTO_MASSIMO  = 0.62;  // oltre, la scala dell'inquadratura basta da sola
+  const RAGGIO_MINIMO      = 1.2;   // px: l'ultimo freno, sotto non si vede niente
 
   /* ----------------------------------------------------------------------
      LETTURA DEL DATO grafo_json()
@@ -904,6 +960,9 @@ const Grafico = (function () {
     // costano soltanto
     const trattini = L >= LARGHEZZA_MINIMA;
     const nomi = L >= LARGHEZZA_MINIMA;
+    // la scala delle SFERE: la posizione resta su SC, la taglia no (vedi
+    // RIQUADRO_PER_UNITA). Si calcola una volta per fotogramma, non per sfera.
+    const SCsfere = Math.max(SC, Math.min(PAVIMENTO_MASSIMO, Math.min(L, A) / RIQUADRO_PER_UNITA));
 
     ctx.clearRect(0, 0, L, A);
     const P = NODI.map(proietta);
@@ -938,7 +997,7 @@ const Grafico = (function () {
       // profondità: sfumatura CONTINUA, mai un interruttore su z
       const prof = 0.34 + 0.66 * (0.5 + 0.5 * Math.max(-1, Math.min(1, p.z / 210)));
       const resp = n.pensa > 0 ? (0.42 + 0.30 * Math.sin(ora / 700)) * n.pensa : 0;
-      const luce = Math.max(n.acceso, resp), rr = Math.max(0.9, n.r * SC * p.s);
+      const luce = Math.max(n.acceso, resp), rr = Math.max(RAGGIO_MINIMO, n.r * SCsfere * p.s);
 
       if (luce > 0.02) {
         const R2 = rr + 13 * luce * p.s;
@@ -5461,7 +5520,16 @@ const Unica = (function () {
     annuncia('padrona');
   }
 
-  function diventaSecondaria(daQuando) {
+  /* `provaDiVita` è l'istante dell'ultima prova che l'altra finestra respira.
+     Quasi sempre è ADESSO: chi mi ha appena parlato sul canale, o ha appena
+     vinto l'elezione, respira in questo momento. Ma alla NASCITA la prova è il
+     battito scritto DENTRO il biglietto trovato nel deposito, e quello può già
+     avere qualche secondo. Contarli da adesso vuol dire aspettarne fino a
+     dodici invece di sei prima di accorgersi che quella finestra non c'è più.
+     È lo stesso sbaglio già corretto dentro guardia(), che qui era rimasto.
+     Misurato con Playwright: finestra nuova che trova un biglietto vecchio di
+     tre secondi, 8,1 s per riprendere il comando prima, 3,4 s dopo. */
+  function diventaSecondaria(daQuando, provaDiVita) {
     var ora = orologio();
     tConferma = ferma(tConferma);
     tAppello = ferma(tAppello);
@@ -5473,7 +5541,9 @@ const Unica = (function () {
       cancellaDeposito();               // lascio il posto libero, non un fantasma
     }
     fase = 'secondaria';
-    ultimaProva = ora;                   // il conto dei sei secondi riparte adesso
+    // il conto dei sei secondi riparte dall'ultima prova vera, non da adesso
+    ultimaProva = (typeof provaDiVita === 'number' && isFinite(provaDiVita) &&
+                   provaDiVita > 0 && provaDiVita < ora) ? provaDiVita : ora;
     if (!congedato) accendiGuardia();
     annuncia('secondaria', daQuando === undefined ? null : daQuando);
   }
@@ -5732,14 +5802,14 @@ const Unica = (function () {
        contro una padrona viva. Se c'è una prova di vita fresca — dal canale
        o dal deposito — diventa secondaria e basta. Il comando cambia solo per
        silenzio o per prendi(), mai per l'arrivo di una nuova finestra. */
-    if (fresca(visto, ora)) { diventaSecondaria(visto.daQuando); return; }
+    if (fresca(visto, ora)) { diventaSecondaria(visto.daQuando, visto.battito); return; }
 
     var tit = leggiDeposito();
     if (tit && tit.id !== io.id && fresca(tit, ora)) {
       if (tit.epoca > epoca) epoca = tit.epoca;
       visto = tit;
-      ultimaProva = ora;
-      diventaSecondaria(tit.daQuando);
+      ultimaProva = tit.battito;
+      diventaSecondaria(tit.daQuando, tit.battito);
       return;
     }
 
@@ -6170,7 +6240,7 @@ function apri(quale){
     quandoFlusso = 0;          // aggiorna subito
   }
   // il grafico non deve girare a vuoto sotto una scheda che nessuno guarda
-  try{ (quale==='conversazione' ? Grafico.riprendi() : Grafico.ferma()); }catch(e){}
+  regolaGrafico();
 }
 $$('.linguetta').forEach(b => b.addEventListener('click', () => apri(b.dataset.scheda)));
 
@@ -6190,15 +6260,39 @@ $$('.forma').forEach(b => b.addEventListener('click', () => {
   $$('.forma').forEach(x => x.classList.toggle('attiva', x === b));
 }));
 
+// UN SOLO posto decide se la mappa deve girare. Prima erano tre che non si
+// parlavano — la scheda aperta, la visibilità della finestra, e Unica — e
+// bastava che uno solo dicesse «riprendi» perché la mappa ripartisse dentro una
+// finestra che per tutto il resto era ferma. È il difetto che il 29/08 ha fatto
+// sembrare rotta la fascia delle sessioni: girava soltanto il grafico, e una
+// pagina con la mappa che ruota sembra viva.
+function graficoPuoGirare(){
+  return !inSecondaFila && !ingressoAperto && !document.hidden
+      && schedaAperta === 'conversazione';
+}
+function regolaGrafico(){
+  try{ (graficoPuoGirare() ? Grafico.riprendi() : Grafico.ferma()); }catch(e){}
+}
+
 async function prendiGrafo(){
+  // in seconda fila non si chiede il grafo e non si avvia il disegno: comanda
+  // un'altra finestra, e questa deve stare ferma TUTTA, mappa compresa.
+  if(inSecondaFila || ingressoAperto || !PASS) return;
   try{
     const g = await rpc('conv_pagina_grafo',{p_pass:PASS});
     if(!g) return;
+    // La risposta arriva DOPO, e nel frattempo il comando può essere passato a
+    // un'altra finestra: senza questo secondo controllo Grafico.avvia() partiva
+    // lo stesso e la mappa restava a ruotare in una pagina ferma. È la corsa che
+    // ha fatto perdere tre ore il 29/08 — la fermata arrivava prima della
+    // partenza, e vinceva la partenza.
+    if(inSecondaFila || ingressoAperto) return;
     if(!grafoAvviato){ Grafico.avvia($('#graficoCanvas'), g); grafoAvviato = true; }
     else Grafico.dati(g);
     const d = Grafico.dimensione();
     graficoConta.textContent = d.nodi + ' oggetti · ' + d.archi + ' collegamenti';
     quandoGrafo = Date.now();
+    regolaGrafico();   // scheda chiusa o finestra nascosta: si ferma subito
   }catch(e){ graficoConta.textContent = 'mappa non disponibile'; }
 }
 
@@ -6206,10 +6300,18 @@ async function prendiGrafo(){
 let giroInCorso = false;
 
 async function guarda(){
-  if(giroInCorso) return;   // un giro alla volta: due giri insieme disegnano le stesse battute due volte
+  // un giro alla volta: due giri insieme disegnano le stesse battute due volte.
+  // E mai in seconda fila: comanda un'altra finestra.
+  if(giroInCorso || inSecondaFila) return;
   giroInCorso = true;
   try{
     const nuovi = await rpc('conv_pagina_leggi',{p_pass:PASS,p_dopo:ultimoId});
+    // Fra una risposta e l'altra il comando può essere passato altrove. Da lì in
+    // poi questo giro non deve più scrivere niente a schermo né far parlare la
+    // voce: sarebbero due finestre che parlano insieme, cioè il guaio da cui
+    // nasce Unica. Le battute non lette restano non lette, ultimoId non si
+    // muove, e le riprende chi comanda.
+    if(inSecondaFila) return;
     (nuovi||[]).forEach(m => { ultimoId = Math.max(ultimoId, m.id); confermata(m); aggiungi(m); });
     primoGiro = false;
 
@@ -6218,6 +6320,7 @@ async function guarda(){
     if(ses) try{ Sessioni.dai(ses); }catch(e){}
 
     const s = await rpc('conv_pagina_stato',{p_pass:PASS});
+    if(inSecondaFila) return;   // la pastiglia non deve dire «ci sto lavorando» da ferma
     if(s){
       nomeSess.textContent = s.linea || '—';
       if(!Orecchio.acceso()){
@@ -6265,7 +6368,7 @@ document.addEventListener('visibilitychange', () => {
     try{ Grafico.ferma(); }catch(e){}
   }else if(ANON && PASS){
     accendiBattito();
-    if(schedaAperta === 'conversazione') try{ Grafico.riprendi(); }catch(e){}
+    regolaGrafico();
   }
 });
 
@@ -6382,21 +6485,42 @@ function chiediSessione(){
 // Due finestre aperte sulla stessa pagina leggono la stessa coda e parlano tutte
 // e due insieme, e il microfono di una sente la voce dell'altra. Comanda una sola.
 let inSecondaFila = false, ingressoAperto = false;
+
+// La fascia in cima. Prima la seconda fila la diceva solo la riga accanto al
+// microfono, in fondo alla pagina: nessuno la legge, e intanto la mappa
+// continuava a ruotare. Adesso lo dice una fascia in cima, e la fascia porta il
+// bottone che chiama Unica.prendi() — il modulo sapeva già strappare il
+// comando, mancava soltanto il modo di premerlo.
+const fasciaSeconda = $('#secondaFila'), usaQuesta = $('#usaQuesta');
+if(usaQuesta) usaQuesta.addEventListener('click', () => {
+  usaQuesta.disabled = true;
+  try{ Unica.prendi(); }catch(e){}
+  // se per qualunque motivo il comando non arriva, il bottone torna premibile
+  setTimeout(() => { usaQuesta.disabled = false; }, 1500);
+});
+
 try{
   Unica.avvia({
     nome: 'mind',
     onPadrona(){
       inSecondaFila = false;
+      if(fasciaSeconda) fasciaSeconda.hidden = true;
       istruzione.classList.remove('male');
-      if(ANON && PASS && !ingressoAperto){ accendiBattito(); try{ Grafico.riprendi(); }catch(e){} }
-      else if(!ANON) { /* l'ingresso è già aperto */ }
-      else istruzione.innerHTML = '<b>Premi</b> per accendere il microfono';
+      istruzione.innerHTML = '<b>Premi</b> per accendere il microfono';
+      if(ANON && PASS && !ingressoAperto){
+        accendiBattito();
+        // da secondaria il grafo non era mai stato chiesto: adesso serve
+        if(!grafoAvviato) prendiGrafo();
+        regolaGrafico();
+      }
     },
     onSecondaria(){
       inSecondaFila = true;
       clearInterval(battito);
-      try{ Bocca.zitta(); Orecchio.spegni(); Grafico.ferma(); }catch(e){}
+      try{ Bocca.zitta(); Orecchio.spegni(); }catch(e){}
+      regolaGrafico();               // ferma la mappa: qui non si disegna niente
       micro.classList.remove('acceso');
+      if(fasciaSeconda) fasciaSeconda.hidden = false;
       istruzione.textContent = 'ATHENA è già aperta in un\'altra finestra: questa sta ferma.';
       istruzione.classList.add('male');
       segno('pronto','in seconda fila');
