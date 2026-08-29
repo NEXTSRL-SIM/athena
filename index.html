@@ -15,6 +15,12 @@
     --fondo:#090D14;--fondo2:#0E1420;--pannello:#111825;--bordo:#1E2836;
     --testo:#C9D2DE;--tenue:#7A8798;--fioco:#4A5566;
     --blu:#4C8DF6;--luce:#FFFFFF;--attesa:#E8A33D;--ok:#3FAE9B;--rosso:#D4736A;
+    /* i due toni delle battute: chi parla si riconosce dal colore, non solo
+       dal lato. Stessa chiarezza (1,09:1 fra loro: nessuno dei due urla),
+       la differenza e di TINTA - blu per chi scrive, ardesia neutra per chi
+       risponde. Restano nella famiglia blu dominante e non litigano col fondo. */
+    --bolla-io:#16233C;--bolla-io-bordo:rgba(76,141,246,.34);
+    --bolla-athena:#161C28;--bolla-athena-bordo:#27313F;
     --mono:'IBM Plex Mono',ui-monospace,Menlo,monospace;
     --ui:'Archivo',system-ui,-apple-system,Segoe UI,sans-serif;
   }
@@ -86,6 +92,89 @@
   #sessioniElenco{flex:1 1 auto;min-width:0;display:flex;align-items:center;gap:6px;
     flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;scrollbar-width:thin;
     padding:2px 0}
+
+  /* "c e altro sotto?" - tre segnali, nessuna chiamata al database.
+     La striscia scorreva gia. Il problema non era lo scorrimento: era che
+     nessuno lo diceva. Su macOS e iOS la barra di sistema e a scomparsa e
+     resta invisibile finche non scorri - cioe il segnale arriva solo dopo che
+     hai gia indovinato da solo che c era. Qui la si disegna a mano, sottile e
+     sempre presente. */
+  #sessioniElenco{scrollbar-color:var(--bordo) transparent}
+  #sessioniElenco::-webkit-scrollbar{height:5px}
+  #sessioniElenco::-webkit-scrollbar-track{background:transparent}
+  #sessioniElenco::-webkit-scrollbar-thumb{background:var(--bordo);border-radius:3px}
+  #sessioniElenco:hover::-webkit-scrollbar-thumb{background:#31404F}
+
+  /* La sfumatura sul bordo: le classi le mette il JS SOLO quando da quella
+     parte c e davvero altro, cosi una striscia che ci sta tutta resta netta e
+     non finge di continuare. */
+  #sessioniElenco.altro-dx{
+    -webkit-mask-image:linear-gradient(to right,#000 calc(100% - 36px),transparent 100%);
+            mask-image:linear-gradient(to right,#000 calc(100% - 36px),transparent 100%)}
+  #sessioniElenco.altro-sx{
+    -webkit-mask-image:linear-gradient(to right,transparent 0,#000 36px);
+            mask-image:linear-gradient(to right,transparent 0,#000 36px)}
+  #sessioniElenco.altro-sx.altro-dx{
+    -webkit-mask-image:linear-gradient(to right,transparent 0,#000 36px,#000 calc(100% - 36px),transparent 100%);
+            mask-image:linear-gradient(to right,transparent 0,#000 36px,#000 calc(100% - 36px),transparent 100%)}
+  /* a fascia aperta le pastiglie vanno a capo: non c e un "fuori", e una
+     sfumatura li sarebbe una bugia. Si spegne. */
+  #sessioniFascia.aperta #sessioniElenco{-webkit-mask-image:none;mask-image:none}
+
+  /* Il contatore, dentro l etichetta: "6 di 14". E l unico dei tre segnali che
+     dice QUANTO manca, e si legge da fermi, senza provare a scorrere. */
+  #sessioniConta b{font-weight:400;color:var(--tenue);letter-spacing:.04em;
+    margin-left:5px;text-transform:none}
+  #sessioniConta b.tutte{color:var(--fioco)}
+  #sessioniConta b:empty{display:none}
+
+  /* la pastiglia si batte. Solo quelle vere: la riga "nessuna sessione" non ha
+     data-sessione e resta una scritta, non un bottone che non fa niente. */
+  .sess[data-sessione]{cursor:pointer}
+  .sess[data-sessione]:hover{border-color:#31404F}
+  .sess[data-sessione]:focus-visible{outline:2px solid var(--blu);outline-offset:2px}
+  .sess.scelta{border-color:var(--blu)!important;
+    box-shadow:0 0 0 1px rgba(76,141,246,.35)}
+
+  /* il dentro: il pannello che si apre battendo su una sessione. Il JS gli
+     mette il top misurando la fascia, perche aperta e piu alta di 34px e un
+     numero fisso qui sarebbe giusto solo meta delle volte. */
+  #sessPannello{position:fixed;left:0;right:0;z-index:60;
+    max-height:min(58vh,520px);overflow-y:auto;
+    background:var(--pannello);border-bottom:1px solid var(--bordo);
+    box-shadow:0 12px 32px rgba(0,0,0,.5);padding:11px 14px 14px;
+    font-size:12px;line-height:1.5;color:var(--testo)}
+  #sessPannello[hidden]{display:none}
+  #sessPannello .sp-testa{display:flex;align-items:baseline;gap:10px;
+    margin-bottom:9px;padding-bottom:8px;border-bottom:1px solid var(--bordo)}
+  #sessPannello .sp-nome{font-weight:600;color:var(--luce);font-size:13px;
+    overflow-wrap:anywhere;min-width:0}
+  #sessPannello .sp-stato{font-family:var(--mono);font-size:10px;
+    letter-spacing:.08em;text-transform:uppercase;color:var(--tenue);
+    white-space:nowrap;flex:0 0 auto}
+  #sessPannello .sp-chiudi{margin-left:auto;flex:0 0 auto;font:inherit;
+    font-family:var(--mono);font-size:10px;letter-spacing:.06em;
+    text-transform:uppercase;background:transparent;color:var(--tenue);
+    border:1px solid var(--bordo);border-radius:5px;padding:3px 8px;cursor:pointer}
+  #sessPannello .sp-chiudi:hover{color:var(--testo);border-color:#31404F}
+  #sessPannello .sp-sez{margin:0 0 10px}
+  #sessPannello .sp-tit{font-family:var(--mono);font-size:10px;letter-spacing:.1em;
+    text-transform:uppercase;color:var(--fioco);margin-bottom:3px}
+  #sessPannello .sp-corpo{overflow-wrap:anywhere;white-space:pre-wrap}
+  #sessPannello .sp-nulla{color:var(--fioco);font-style:italic}
+  #sessPannello ul.sp-lista{list-style:none;margin:0;padding:0;
+    display:flex;flex-direction:column;gap:3px}
+  #sessPannello ul.sp-lista li{display:flex;gap:8px;align-items:baseline;
+    font-family:var(--mono);font-size:11px}
+  #sessPannello .sp-azione{color:var(--blu);flex:0 0 auto;min-width:5.5em}
+  #sessPannello .sp-ogg{color:var(--testo);overflow-wrap:anywhere;min-width:0}
+  #sessPannello .sp-da{margin-left:auto;color:var(--fioco);flex:0 0 auto;
+    font-size:10px;white-space:nowrap}
+  /* la nota onesta in fondo: dice cosa la pagina NON sa, invece di lasciare
+     credere che il vuoto sia un "non e successo niente" */
+  #sessPannello .sp-nota{margin:10px 0 0;padding-top:8px;
+    border-top:1px solid var(--bordo);font-family:var(--mono);font-size:10px;
+    line-height:1.45;color:var(--fioco)}
   /* i due bottoni della fascia: stessa voce dei bottoni piccoli del grafico */
   #nuovaSessione,#sessioniApri{font:inherit;font-family:var(--mono);font-size:10px;
     letter-spacing:.06em;text-transform:uppercase;background:transparent;
@@ -171,8 +260,11 @@
     display:flex;flex-direction:column;gap:14px;min-width:0}
   /* le battute: identiche a quelle della pagina attuale */
   .msg{max-width:min(74ch,100%);overflow-wrap:anywhere;border-radius:10px;padding:11px 14px;border:1px solid transparent}
-  .msg.sante{align-self:flex-end;background:rgba(76,141,246,.11);border-color:rgba(76,141,246,.28)}
-  .msg.claude{align-self:flex-start;background:var(--pannello);border-color:var(--bordo)}
+  /* chi scrive: a destra, tinta blu - la famiglia dominante del progetto */
+  .msg.sante{align-self:flex-end;background:var(--bolla-io);border-color:var(--bolla-io-bordo)}
+  /* chi risponde: a sinistra, ardesia neutra - un gradino sopra --pannello,
+     cosi stacca dal fondo e si legge come riquadro, non come pagina */
+  .msg.claude{align-self:flex-start;background:var(--bolla-athena);border-color:var(--bolla-athena-bordo)}
   .msg .quando{font-family:var(--mono);font-size:10px;color:var(--fioco);margin-bottom:4px;
     display:flex;gap:8px;align-items:center}
   .msg pre{background:#0B111C;border:1px solid var(--bordo);border-radius:7px;padding:10px 12px;
@@ -432,7 +524,7 @@
      una pastiglia .sess per sessione la mette il JS. Chiusa o aperta lo
      decide la sola classe «aperta» su #sessioniFascia. -->
 <div id="sessioniFascia">
-  <span class="sessioniEtichetta">sessioni</span>
+  <span class="sessioniEtichetta" id="sessioniConta">sessioni</span>
   <div id="sessioniElenco" role="list" aria-label="Sessioni di lavoro in corso"></div>
   <button id="nuovaSessione" type="button"
           title="Avvia un'altra sessione di lavoro, in parallelo a queste">+ nuova</button>
@@ -581,7 +673,10 @@ const Grafico = (function () {
      stringa solo alla fine: passarsi stringhe fra loro era il difetto dello
      schermo nero.
      -------------------------------------------------------------------- */
-  const COL = { w: '#4C8DF6', n: '#7DD3FC', m: '#22B8D6', e: '#8B84E0', t: '#3FAE9B', g: '#C983C4', o: '#E8934A' };
+  // c e r arrivano dal censimento da quando il tipo lo da grafo_json e non piu
+  // il nome: senza una voce qui cadevano su N3.t e si vedevano come tabelle,
+  // cioe lo stesso difetto corretto il 26/08, in piccolo. Restano in famiglia blu.
+  const COL = { w: '#4C8DF6', n: '#7DD3FC', m: '#22B8D6', e: '#8B84E0', t: '#3FAE9B', g: '#C983C4', o: '#E8934A', c: '#5B6EE8', r: '#2FA6C8' };
   const N3 = {};
   Object.keys(COL).forEach(k => {
     const x = COL[k];
@@ -905,6 +1000,17 @@ const Grafico = (function () {
     const trattini = L >= LARGHEZZA_MINIMA;
     const nomi = L >= LARGHEZZA_MINIMA;
 
+    // LA SFERA SI MISURA IN PIXEL DELLO SCHERMO, NON IN UNITA DELLA NUVOLA.
+    // SC serve a far stare la nuvola dentro il riquadro: piu oggetti arrivano,
+    // piu la nuvola si allarga, piu SC scende. Se anche la taglia della sfera
+    // passa di li, ogni oggetto nuovo rimpicciolisce tutti gli altri e la mappa
+    // si cancella da sola man mano che il sistema cresce - che e quello che e
+    // successo. Il riquadro invece non cambia: e lui a dire quanto si vede una
+    // sfera. Il 450 tiene l inchiostro intorno al 20% della nuvola sia nel
+    // riquadro piccolo sia da espanso; il tetto 1.7 impedisce che a schermo
+    // intero le sfere si tocchino.
+    const unita = Math.min(1.7, Math.min(L, A) / 450);
+
     ctx.clearRect(0, 0, L, A);
     const P = NODI.map(proietta);
 
@@ -915,9 +1021,13 @@ const Grafico = (function () {
         const p1 = P[a.a], p2 = P[a.b], zz = (p1.z + p2.z) / 2,
           op = 0.30 + 0.70 * (0.5 + 0.5 * Math.max(-1, Math.min(1, zz / 210)));
         ctx.beginPath(); ctx.moveTo(p1.X, p1.Y); ctx.lineTo(p2.X, p2.Y);
-        ctx.strokeStyle = 'rgba(132,170,228,' + ((0.13 + a.flusso * 0.34 + (a.attenzione || 0) * 0.20) * op) + ')';
+        // 0.19 e non 0.13: con op che scende a 0.30 sul fondo, il 13% diventava
+        // un 4% su un tratto di mezzo pixel - un collegamento che il monitor non
+        // ha modo di disegnare. Alzati tutti e due, il tratto resta leggero ma
+        // esiste. Il salto quando l arco e vivo (+0.34) e lasciato com era.
+        ctx.strokeStyle = 'rgba(132,170,228,' + ((0.19 + a.flusso * 0.34 + (a.attenzione || 0) * 0.20) * op) + ')';
         // linee sottili: il collegamento si legge, non pesa
-        ctx.lineWidth = a.flusso > 0 ? 0.85 : 0.55;
+        ctx.lineWidth = a.flusso > 0 ? 1 : 0.8;
         ctx.stroke();
         if (trattini && a.flusso > 0.05) {
           const lung = Math.hypot(p2.X - p1.X, p2.Y - p1.Y),
@@ -938,7 +1048,9 @@ const Grafico = (function () {
       // profondità: sfumatura CONTINUA, mai un interruttore su z
       const prof = 0.34 + 0.66 * (0.5 + 0.5 * Math.max(-1, Math.min(1, p.z / 210)));
       const resp = n.pensa > 0 ? (0.42 + 0.30 * Math.sin(ora / 700)) * n.pensa : 0;
-      const luce = Math.max(n.acceso, resp), rr = Math.max(0.9, n.r * SC * p.s);
+      // il pavimento e 1.1 e non 0.9: sotto un pixel pieno l antialiasing
+      // spalma la sfera nel fondo e l oggetto c e ma non si vede
+      const luce = Math.max(n.acceso, resp), rr = Math.max(1.1, n.r * unita * p.s);
 
       if (luce > 0.02) {
         const R2 = rr + 13 * luce * p.s;
@@ -2585,6 +2697,16 @@ const Orecchio = (function () {
   // Ogni quanto il cane da guardia controlla che il registratore sia vivo.
   const GUARDIA_MS = 1000;
 
+  // Dopo quanto tempo SENZA PARLATO RIVOLTO A CLAUDE il microfono si spegne
+  // da solo. Il conto NON e sul volume: in una stanza il suono non manca mai,
+  // e un microfono lasciato acceso finisce per trascrivere la casa. Il conto e
+  // agganciato alla stessa decisione che apre una frase (livello sopra la
+  // soglia tarata sul rumore di fondo per SUONO_INIZIO_FRASE_MS): finche
+  // qualcuno parla davvero il conto riparte, appena si smette scorre.
+  // 90 secondi: abbastanza per pensare prima di rispondere, poco abbastanza
+  // per non restare acceso tutta la notte.
+  const SPEGNIMENTO_SENZA_PARLATO_MS = 90000;
+
   /* ---------------------------------------------------------------------
      STATO INTERNO
      ------------------------------------------------------------------ */
@@ -2634,6 +2756,7 @@ const Orecchio = (function () {
   let sopraDa = 0;              // da quando il livello e' sopra soglia (0 = non lo e')
   let sottoDa = 0;              // da quando e' sotto soglia
   let ultimoSuonoT = 0;         // ultimo istante sopra soglia, per la guardia sul riciclo
+  let ultimoParlatoT = 0;       // ultimo istante di PARLATO riconosciuto, per lo spegnimento automatico
   let inFrase = false;
   let inizioFraseT = 0;
   let fineParlatoT = 0;         // ultimo istante di parlato dentro la frase corrente
@@ -3013,7 +3136,24 @@ const Orecchio = (function () {
     // ma non si apre nessuna frase: quello che si sente e' la voce sintetica
     // della pagina, non l'utente.
     if (sospeso) {
+      // Mentre la pagina parla la conversazione e viva: il conto
+      // dell inattivita non deve scorrere, altrimenti una risposta lunga di
+      // ATHENA spegnerebbe il microfono proprio mentre sta rispondendo.
+      ultimoParlatoT = adesso;
       riciclaSePossibile(adesso);
+      return;
+    }
+
+    // --- spegnimento automatico dopo troppo tempo senza parlato ---
+    // Si guarda inFrase, cioe l esito della decisione qui sopra (soglia tarata
+    // sul fondo della stanza), non il livello grezzo: e l unico modo per
+    // distinguere "nessuno mi sta parlando" da "c e silenzio assoluto", che in
+    // una casa non capita mai.
+    if (inFrase) {
+      ultimoParlatoT = adesso;
+    } else if (ultimoParlatoT && adesso - ultimoParlatoT >= SPEGNIMENTO_SENZA_PARLATO_MS) {
+      spegni();             // chiude e manda l eventuale frase in corso, libera il microfono
+      dichiara('scaduto');  // DOPO spegni(): dev essere l ultimo stato che la pagina vede
       return;
     }
 
@@ -3305,6 +3445,10 @@ const Orecchio = (function () {
         sommaTaratura = 0;
         contaTaratura = 0;
         ultimoSuonoT = 0;
+        // Il conto dell inattivita parte dall accensione, non da zero: senza
+        // questo un microfono appena acceso risulterebbe fermo da sempre e si
+        // spegnerebbe alla prima misura.
+        ultimoParlatoT = ora();
         statoDichiarato = '';
         taraturaFinoA = ora() + TARATURA_FONDO_MS;
 
@@ -4453,6 +4597,23 @@ const Sessioni = (function () {
   /* Quanto resta l'eco della conferma, in millisecondi. */
   const ECO_MS = 2000;
 
+  /* Quante righe di diario mostra il pannello, quando un giorno arriveranno
+     piu d una. Oggi conv_pagina_sessioni ne manda una sola: la costante c e
+     perche il codice sia gia pronto, non perche serva adesso. */
+  const DIARIO_RIGHE = 12;
+
+  /* Il pannello del dentro: nome della sessione aperta, e i suoi pezzi tenuti
+     da parte come per le pastiglie - si aggiorna sul posto a ogni giro, cosi
+     mentre lo guardi vedi il vivo e non una fotografia. */
+  let apertaOra = null;              // nome della sessione col pannello aperto
+  let pann = null;                   // { nodo, elNome, elStato, ... } o null
+  let manoTasti = null;              // l ascoltatore di Esc, per poterlo staccare
+
+  /* I segnali "c e altro sotto". scrollAgganciato evita di attaccare lo stesso
+     ascoltatore a ogni giro: segnali() viene chiamata di continuo. */
+  let scrollAgganciato = false;
+  let elConta = null, contaCercata = false;
+
   /* Peso d'ordinamento: prima le vive, poi le in pausa, poi le pronte, poi
      le spente. Chi sta lavorando adesso sta in testa: è tutto il senso. */
   const PESO = { viva: 0, pausa: 1, pronta: 2, spenta: 3 };
@@ -4642,10 +4803,14 @@ const Sessioni = (function () {
       const o = lista[i];
       if (typeof o === 'string') {
         const s = testo(o);
-        if (s) fuori.push(s);
+        /* forma vecchia, la sola stringa: si accetta e si normalizza uguale */
+        if (s) fuori.push({ nome: s, azione: '', da: '' });
       } else if (o && typeof o === 'object') {
         const s = testo(o.oggetto);
-        if (s) fuori.push(s);
+        /* conv_pagina_sessioni manda {oggetto, azione, da} pieno, e qui si
+           teneva solo il nome. L azione e il da-quando sono i due campi che
+           servono al pannello del dentro, e arrivavano gia: non si buttano piu. */
+        if (s) fuori.push({ nome: s, azione: testo(o.azione), da: testo(o.da) });
       }
     }
     return fuori;
@@ -4664,7 +4829,10 @@ const Sessioni = (function () {
     if (riga.compito) pezzi.push(accorcia(riga.compito, COMPITO_MAX));
 
     if (riga.oggetti.length) {
-      const primi = riga.oggetti.slice(0, OGGETTI_IN_CHIARO).join(', ');
+      /* .map(.nome): da quando oggettiDi tiene anche azione e da-quando, un
+         join() secco scriverebbe [object Object] in fascia. */
+      const primi = riga.oggetti.slice(0, OGGETTI_IN_CHIARO)
+        .map(function (o) { return o.nome; }).join(', ');
       const resto = riga.oggetti.length - OGGETTI_IN_CHIARO;
       pezzi.push(resto > 0 ? primi + ' +' + resto : primi);
     }
@@ -4711,12 +4879,38 @@ const Sessioni = (function () {
     nodo.className = 'sess ' + riga.classe;
     nodo.setAttribute('data-sessione', riga.nome);
 
+    /* Si batte sopra e si apre il dentro. role/tabindex perche sia un bottone
+       anche da tastiera e per chi legge con la voce: sul telefono il title
+       non esiste, e finora era l unico modo per sapere cosa stesse facendo
+       una sessione. */
+    nodo.setAttribute('role', 'listitem');
+    nodo.setAttribute('tabindex', '0');
+    nodo.addEventListener('click', function () { apriPannello(riga.nome); });
+    nodo.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Enter' || ev.key === ' ' || ev.key === 'Spacebar') {
+        ev.preventDefault();                 // lo spazio, se no, scorre la pagina
+        apriPannello(riga.nome);
+      }
+    });
+
+    /* Il vestito del guscio veste .punto, .nome, .tempo. Qui si creavano
+       <b> <i> <time> NUDI: nessuna di quelle regole prendeva. Il puntino che
+       respira non e mai esistito, il tempo non finiva a destra, e soprattutto
+       .sess .nome{max-width:20ch} non tagliava niente - i nomi lunghi
+       uscivano interi e ogni pastiglia era larga il doppio del previsto.
+       E meta del motivo per cui la striscia sforava subito. */
+    const elPunto = doc.createElement('span');
+    elPunto.className = 'punto';
     const elNome = doc.createElement('b');
+    elNome.className = 'nome';
     const elStato = doc.createElement('i');
+    elStato.className = 'stato';
     const elTempo = doc.createElement('time');
+    elTempo.className = 'tempo';
     const elDett = doc.createElement('div');
     elDett.className = 'dett';
 
+    nodo.appendChild(elPunto);
     nodo.appendChild(elNome);
     nodo.appendChild(elStato);
     nodo.appendChild(elTempo);
@@ -4809,10 +5003,308 @@ const Sessioni = (function () {
      Aggiungere, aggiornare, togliere, riordinare. In quest'ordine, e senza
      mai svuotare la radice.
      ====================================================================== */
+  /* "C E ALTRO SOTTO?" - i tre segnali.
+     La striscia scorreva gia. Quello che mancava era dirlo. Qui si misura il
+     DOM - nessuna chiamata al database - e si accendono i segnali solo quando
+     c e davvero qualcosa fuori: un segnale sempre acceso e rumore, e dopo due
+     giorni non lo guarda piu nessuno. */
+
+  function fasciaAperta() {
+    const f = radice && radice.parentNode;
+    return !!(f && f.classList && f.classList.contains('aperta'));
+  }
+
+  /* Chi va mostrato in striscia. Le spente restano nel dato per 24 ore - e
+     conv_pagina_sessioni a tenerle. A fascia chiusa cinque cadaveri stanno
+     davanti a chi lavora e la striscia sfora per colpa loro. Qui si tolgono
+     dalla riga stretta e si rimettono TUTTE a fascia aperta: il bottone che
+     apre si chiama gia "tutte". Non si cancella niente e non si inventa
+     nessuna soglia: morta la dichiara il database (conv_battito e
+     conv_raccogli, 360 s), la pagina legge lo stato che ne esce. */
+  function daMostrare() {
+    if (fasciaAperta()) return ultimeSessioni;
+    return ultimeSessioni.filter(function (r) { return r.classe !== 'spenta'; });
+  }
+
+  function quanteSpente() {
+    let n = 0;
+    for (let i = 0; i < ultimeSessioni.length; i++) {
+      if (ultimeSessioni[i].classe === 'spenta') n++;
+    }
+    return n;
+  }
+
+  function trovaConta() {
+    if (contaCercata) return elConta;
+    contaCercata = true;
+    const doc = radice ? (radice.ownerDocument || document) : null;
+    const guscio = doc && doc.getElementById ? doc.getElementById('sessioniConta') : null;
+    if (!guscio) return null;
+    const gia = guscio.querySelector ? guscio.querySelector('b') : null;
+    if (gia) { elConta = gia; return elConta; }
+    elConta = doc.createElement('b');
+    guscio.appendChild(elConta);
+    return elConta;
+  }
+
+  /* Il conto: quante pastiglie stanno DENTRO il riquadro visibile, sul totale.
+     getBoundingClientRect e non offsetLeft: offsetLeft e relativo all antenato
+     posizionato, scrollLeft alla radice, e mescolarli da numeri giusti per caso. */
+  function conta() {
+    const el = trovaConta();
+    if (!el) return;
+
+    const totale = ultimeSessioni.length;
+    const spente = quanteSpente();
+
+    if (!totale) { if (el.textContent !== '') el.textContent = ''; return; }
+
+    let frase;
+    if (fasciaAperta()) {
+      frase = String(totale);
+    } else {
+      const box = radice.getBoundingClientRect();
+      let dentro = 0, mostrate = 0;
+      pastiglie.forEach(function (scheda) {
+        if (scheda.nodo.parentNode !== radice) return;
+        mostrate++;
+        const r = scheda.nodo.getBoundingClientRect();
+        if (r.left >= box.left - 1 && r.right <= box.right + 1) dentro++;
+      });
+      frase = (dentro < mostrate) ? (dentro + ' di ' + mostrate) : String(mostrate);
+      /* le chiuse tolte dalla riga stretta si dichiarano: sparire in silenzio
+         sarebbe indistinguibile dal non essere mai esistite */
+      if (spente) frase += ' - +' + spente + (spente === 1 ? ' chiusa' : ' chiuse');
+    }
+
+    if (el.textContent !== frase) el.textContent = frase;
+    const tutto = frase.indexOf(' di ') === -1;
+    if (el.classList.contains('tutte') !== tutto) el.classList.toggle('tutte', tutto);
+  }
+
+  function segnali() {
+    if (!radice) return;
+
+    if (!scrollAgganciato) {
+      scrollAgganciato = true;
+      radice.addEventListener('scroll', segnali, { passive: true });
+      const fin = (radice.ownerDocument && radice.ownerDocument.defaultView) || null;
+      if (fin) fin.addEventListener('resize', segnali);
+    }
+
+    const largo = radice.clientWidth;
+    /* fascia fuori schermo o pagina nascosta: tutte le misure sono zero, e
+       zero direbbe "non c e altro" - che e una bugia. */
+    if (!largo) return;
+
+    const dx = (radice.scrollWidth - radice.scrollLeft - largo) > 2;
+    const sx = radice.scrollLeft > 2;
+    if (radice.classList.contains('altro-dx') !== dx) radice.classList.toggle('altro-dx', dx);
+    if (radice.classList.contains('altro-sx') !== sx) radice.classList.toggle('altro-sx', sx);
+
+    conta();
+  }
+
+  /* IL DENTRO - si batte su una sessione e si vede cosa sta facendo.
+     Nessuna chiamata nuova al database: tutto quel che si legge qui e gia
+     arrivato con conv_pagina_sessioni, e in parte veniva buttato via da
+     oggettiDi(). Il diario pero arriva TRONCATO all ultima riga: il pannello
+     mostra quella e lo DICHIARA in fondo, invece di lasciar credere che non
+     sia successo altro. Tutto con createElement e textContent: niente
+     innerHTML su dato altrui. */
+
+  function costruisciPannello(doc) {
+    const nodo = doc.createElement('div');
+    nodo.id = 'sessPannello';
+    nodo.setAttribute('role', 'dialog');
+    nodo.setAttribute('aria-label', 'Dentro la sessione');
+    nodo.hidden = true;
+
+    const testa = doc.createElement('div'); testa.className = 'sp-testa';
+    const elNome = doc.createElement('span'); elNome.className = 'sp-nome';
+    const elStato = doc.createElement('span'); elStato.className = 'sp-stato';
+    const bChiudi = doc.createElement('button');
+    bChiudi.type = 'button'; bChiudi.className = 'sp-chiudi'; bChiudi.textContent = 'chiudi';
+    bChiudi.addEventListener('click', chiudiPannello);
+    testa.appendChild(elNome); testa.appendChild(elStato); testa.appendChild(bChiudi);
+
+    function sezione(titolo) {
+      const s = doc.createElement('div'); s.className = 'sp-sez';
+      const t = doc.createElement('div'); t.className = 'sp-tit'; t.textContent = titolo;
+      const c = doc.createElement('div'); c.className = 'sp-corpo';
+      s.appendChild(t); s.appendChild(c);
+      return { sez: s, corpo: c };
+    }
+
+    const sCompito = sezione('compito');
+    const sTocca   = sezione('sta toccando');
+    const sDiario  = sezione('ultima nota di diario');
+
+    const nota = doc.createElement('p'); nota.className = 'sp-nota';
+
+    nodo.appendChild(testa);
+    nodo.appendChild(sCompito.sez);
+    nodo.appendChild(sTocca.sez);
+    nodo.appendChild(sDiario.sez);
+    nodo.appendChild(nota);
+
+    manoTasti = function (ev) { if (ev.key === 'Escape') chiudiPannello(); };
+    doc.addEventListener('keydown', manoTasti);
+
+    (doc.body || doc.documentElement).appendChild(nodo);
+
+    return {
+      nodo: nodo, elNome: elNome, elStato: elStato,
+      cCompito: sCompito, cTocca: sTocca, cDiario: sDiario, nota: nota
+    };
+  }
+
+  /* Svuota un corpo e ci mette una frase. Se la frase manca si scrive il
+     ripiego in corsivo grigio: un titolino con sotto il vuoto sembra rotto. */
+  function scriviCorpo(corpo, frase, ripiego) {
+    while (corpo.firstChild) corpo.removeChild(corpo.firstChild);
+    const doc = corpo.ownerDocument || document;
+    if (frase) { corpo.textContent = frase; return; }
+    const v = doc.createElement('span');
+    v.className = 'sp-nulla';
+    v.textContent = ripiego;
+    corpo.appendChild(v);
+  }
+
+  function scriviTocca(corpo, oggetti) {
+    while (corpo.firstChild) corpo.removeChild(corpo.firstChild);
+    const doc = corpo.ownerDocument || document;
+
+    if (!oggetti || !oggetti.length) {
+      const v = doc.createElement('span');
+      v.className = 'sp-nulla';
+      v.textContent = 'niente aperto in questo momento';
+      corpo.appendChild(v);
+      return;
+    }
+
+    const ul = doc.createElement('ul'); ul.className = 'sp-lista';
+    for (let i = 0; i < oggetti.length; i++) {
+      const o = oggetti[i];
+      const li = doc.createElement('li');
+
+      const a = doc.createElement('span'); a.className = 'sp-azione';
+      a.textContent = o.azione || '-';
+      const n = doc.createElement('span'); n.className = 'sp-ogg';
+      n.textContent = o.nome;
+      li.appendChild(a); li.appendChild(n);
+
+      const t = Date.parse(o.da || '');
+      if (!isNaN(t)) {
+        const d = doc.createElement('span'); d.className = 'sp-da';
+        d.textContent = 'da ' + quando((Date.now() - t) / 1000);
+        li.appendChild(d);
+      }
+      ul.appendChild(li);
+    }
+    corpo.appendChild(ul);
+  }
+
+  /* Riempie il pannello con la riga piu fresca che abbiamo. Chiamata
+     all apertura E a ogni giro del battito, cosi mentre lo guardi il pannello
+     si aggiorna da solo e non e una fotografia vecchia di tre minuti. */
+  function riempiPannello() {
+    if (!pann || !apertaOra) return;
+
+    let riga = null;
+    for (let i = 0; i < ultimeSessioni.length; i++) {
+      if (ultimeSessioni[i].nome === apertaOra) { riga = ultimeSessioni[i]; break; }
+    }
+
+    /* Sparita dall elenco: dopo 24 ore conv_pagina_sessioni smette di mandare
+       anche le spente. Non si chiude il pannello sotto il naso di chi lo sta
+       leggendo - si dice cos e successo e si lascia chiudere a lui. */
+    if (!riga) {
+      pann.elNome.textContent = apertaOra;
+      pann.elStato.textContent = 'non piu in elenco';
+      scriviCorpo(pann.cCompito.corpo, '', 'la sessione non compare piu fra quelle mandate dal database');
+      scriviTocca(pann.cTocca.corpo, []);
+      scriviCorpo(pann.cDiario.corpo, '', 'niente da mostrare');
+      pann.nota.textContent =
+        'Le sessioni chiuse restano in elenco 24 ore, poi il database smette di mandarle. Questa e oltre, oppure e stata rimossa.';
+      return;
+    }
+
+    pann.elNome.textContent = riga.nome;
+
+    const parola = PAROLA[riga.classe] || riga.classe;
+    const testaStato = parola + ' - ' + (riga.stato || 'stato ignoto')
+      + ' - ultimo segno ' + quando(riga.secondi);
+    if (pann.elStato.textContent !== testaStato) pann.elStato.textContent = testaStato;
+
+    scriviCorpo(pann.cCompito.corpo, riga.compito,
+      riga.classe === 'pronta' ? 'nessun compito: e a disposizione'
+                               : 'nessun compito registrato');
+    scriviTocca(pann.cTocca.corpo, riga.oggetti);
+    scriviCorpo(pann.cDiario.corpo, riga.diario, 'non ha ancora scritto niente nel diario');
+
+    /* La nota onesta: dice due cose che il pannello non puo mostrare, cosi il
+       vuoto non si legge come "non e successo niente". */
+    const pezzi = ['Di questa sessione la pagina riceve solo l ultima riga di diario: '
+                 + 'lo storico completo sta in conv_lavoro.diario e non passa da qui.'];
+    if (riga.versione !== null) pezzi.push('Istruzioni v' + riga.versione + '.');
+    if (riga.classe === 'pausa' && riga.stato === 'ingaggiata') {
+      pezzi.push('Risulta ingaggiata ma e zitta da oltre ' + SOGLIA_FERMA
+               + ' s: e la stessa soglia con cui il database la da per ferma.');
+    }
+    const nota = pezzi.join(' ');
+    if (pann.nota.textContent !== nota) pann.nota.textContent = nota;
+  }
+
+  /* Il pannello si posa sotto la fascia, misurandola: chiusa e alta 34px,
+     aperta arriva a 42vh, e un numero fisso sarebbe giusto solo meta volte. */
+  function posaPannello() {
+    if (!pann) return;
+    const f = radice && radice.parentNode;
+    const y = (f && f.getBoundingClientRect) ? f.getBoundingClientRect().bottom : 34;
+    const top = Math.max(0, Math.round(y)) + 'px';
+    if (pann.nodo.style.top !== top) pann.nodo.style.top = top;
+  }
+
+  /* Ribattere sulla stessa pastiglia chiude: e il gesto che tutti provano. */
+  function apriPannello(nome) {
+    if (!radice) return;
+    if (apertaOra === nome) { chiudiPannello(); return; }
+
+    const doc = radice.ownerDocument || document;
+    if (!pann) pann = costruisciPannello(doc);
+
+    apertaOra = nome;
+    pann.nodo.hidden = false;
+    posaPannello();
+    riempiPannello();
+    segnaScelta();
+  }
+
+  function chiudiPannello() {
+    apertaOra = null;
+    if (pann) pann.nodo.hidden = true;
+    segnaScelta();
+  }
+
+  /* Il contorno blu sulla pastiglia aperta: senza, il pannello sembra parlare
+     di una sessione a caso. */
+  function segnaScelta() {
+    pastiglie.forEach(function (scheda, nome) {
+      const si = (nome === apertaOra);
+      if (scheda.nodo.classList.contains('scelta') !== si) {
+        scheda.nodo.classList.toggle('scelta', si);
+      }
+    });
+  }
+
   function disegna() {
     if (!radice) return;
 
-    const righe = ultimeSessioni;
+    /* daMostrare() e non ultimeSessioni: a fascia chiusa le spente restano
+       fuori. ultimeSessioni resta intero - conteggi(), vive() e il pannello
+       continuano a vedere tutto. */
+    const righe = daMostrare();
     const ordinate = ordina(righe);
 
     /* niente sessioni: una riga sola, tranquilla, e via */
@@ -4822,6 +5314,19 @@ const Sessioni = (function () {
       });
       pastiglie.clear();
       mostraVuoto(true);
+      /* Attenzione alla differenza: "non c e nessuna sessione" e "ce ne sono,
+         ma sono tutte chiuse e a fascia chiusa non si mostrano" sono due frasi
+         diverse, e la seconda e quella vera quasi sempre di sera. */
+      if (nodoVuoto && ultimeSessioni.length) {
+        const n = ultimeSessioni.length;
+        nodoVuoto.textContent = 'nessuna sessione attiva - ' + n
+          + (n === 1 ? ' chiusa' : ' chiuse') + ' - "tutte" per vederle';
+      } else if (nodoVuoto) {
+        nodoVuoto.textContent = 'nessuna sessione in questo momento';
+      }
+      segnali();
+      segnaScelta();
+      if (apertaOra) riempiPannello();
       return;
     }
     mostraVuoto(false);
@@ -4855,6 +5360,14 @@ const Sessioni = (function () {
 
     /* 3 — l'ordine, spostando i nodi esistenti */
     riordina(ordinate);
+
+    /* i segnali "c e altro sotto", e il pannello che segue il vivo. Qui e non
+       in dai(): cosi ogni strada che ridisegna la fascia - il battito, il
+       bottone "tutte", un ridisegno futuro - li aggiorna, e non resta un
+       percorso che li dimentica. */
+    segnali();
+    segnaScelta();
+    if (apertaOra) { posaPannello(); riempiPannello(); }
   }
 
   /* La riga «nessuna sessione». È una `.sess.vuoto` come da accordo col
@@ -5029,6 +5542,16 @@ const Sessioni = (function () {
 
     /* messe fuori perché la pagina di prova possa controllarle e perché la
        stessa scrittura del tempo serva anche fuori dalla fascia */
+    /* Ridisegna senza dato nuovo. Serve al guscio quando la fascia si apre o
+       si stringe: cambia CHI va mostrato (a fascia aperta rientrano anche le
+       chiuse) e cambia la geometria, quindi vanno rifatti anche i segnali. */
+    ridisegna: function () { disegna(); return this; },
+
+    /* Apre e chiude il pannello del dentro anche da fuori. */
+    apri: function (nome) { apriPannello(testo(nome)); return this; },
+    chiudi: function () { chiudiPannello(); return this; },
+    aperta: function () { return apertaOra; },
+
     quando: quando,
     classeDi: classeDi,
     SOGLIA_FERMA: SOGLIA_FERMA
@@ -5922,7 +6445,7 @@ const discorso = $('#discorso'), spia = $('#spia'), statoTesto = $('#statoTesto'
       livelloBarra = $('#livello i'), contaNuove = $('#contaNuove'),
       graficoBox = $('#graficoBox'), graficoConta = $('#graficoConta');
 
-let ultimoId = 0, ultimoFlusso = 0, schedaAperta = 'conversazione';
+let primoGiro = true;   // al primo giro si disegna la conversazione vecchia ma NON si rilegge a voce\nlet ultimoId = 0, ultimoFlusso = 0, schedaAperta = 'conversazione';
 let battito = null, quandoFlusso = 0, quandoGrafo = 0, grafoAvviato = false;
 
 // il browser ricorda; se non può (finestra anonima, storage bloccato) si riparte
@@ -5987,7 +6510,7 @@ function aggiungi(m){
   if(m.chi === 'claude'){
     // il codice e le tabelle vanno in vetrina, dove si leggono davvero
     try{ Vetrina.dai(m.testo, 'ATHENA · '+ora(m.at)); }catch(e){}
-    if(m.testo_voce) Bocca.parla(m.testo_voce);
+    if(m.testo_voce && !primoGiro) Bocca.parla(m.testo_voce);
   }
 }
 
@@ -6074,6 +6597,21 @@ async function trascrivi(blob){
   return j && (j.testo||'').trim();
 }
 
+// Il trascrittore, quando sente qualcosa che non e parlato, restituisce
+// un etichetta fra parentesi quadre: [risate], [rumore di microfono],
+// [voci di bambini], [musica]. Le etichette se le inventa di volta in volta,
+// quindi un elenco di parole sarebbe sempre in ritardo: si guarda la FORMA.
+// Tolte tutte le parentesi quadre e il loro contenuto, se non resta nessuna
+// parola vera quella non e roba detta a Claude: e la stanza. Questa e casa di
+// Sante, non deve proprio entrare. Si butta solo cio che resta VUOTO: "ho riso
+// [risate] ma poi no" conserva parole vere e passa intero, com e giusto.
+function soloRumore(testo){
+  const senza = String(testo || '')
+    .replace(/\[[^\]]*\]/g, ' ')
+    .replace(/\[[^\]]*$/, ' ');
+  return !/[\p{L}\p{N}]/u.test(senza);
+}
+
 async function manda(testo){
   if(!testo) return;
   try{
@@ -6099,13 +6637,31 @@ async function accendiMicrofono(){
   micro.setAttribute('aria-pressed','true');
   istruzione.innerHTML = '<b>Microfono acceso</b> — parla pure, quando taci mando';
   await Orecchio.accendi({
-    onStato: s => { const v = statiOrecchio[s]; if(v) segno(v[0], v[1]); },
+    onStato: s => {
+      // 'scaduto': l orecchio si e spento da solo per inattivita. Passa da
+      // spegniMicrofono() come lo spegnimento a mano, poi scrive il MOTIVO al
+      // posto dell istruzione a riposo: altrimenti l utente vedrebbe il
+      // pulsante rispegnersi da solo senza capire perche. Riaccendere resta un
+      // gesto solo: il click sul microfono.
+      if(s === 'scaduto'){
+        spegniMicrofono();
+        istruzione.innerHTML = '<b>Microfono spento da solo</b> - 90 secondi senza che mi parlassi. Premi per riaccenderlo';
+        segno('pronto','microfono spento da solo');
+        return;
+      }
+      const v = statiOrecchio[s]; if(v) segno(v[0], v[1]);
+    },
     onLivello: v => { livelloBarra.style.width = Math.round(Math.min(1,v)*100)+'%'; },
     onGuaio: m => spegniMicrofono(m),
     onPezzo: async blob => {
       const t = await trascrivi(blob);
-      if(t){ mostraProvvisoria(t); manda(t); }
-      else segno('ascolta','non ho capito, ripeti');
+      if(!t){ segno('ascolta','non ho capito, ripeti'); return; }
+      // Il setaccio sta QUI: dopo il ponte e PRIMA di mostrarla e di mandarla
+      // al database. Filtrare dopo l INSERT vorrebbe dire cancellare, e la
+      // frase sarebbe comunque passata dalla tabella. Non si mostra neanche in
+      // provvisoria: se non si manda, non si finge di averla mandata.
+      if(soloRumore(t)){ segno('ascolta','ti ascolto'); return; }
+      mostraProvvisoria(t); manda(t);
     }
   });
 }
@@ -6211,6 +6767,7 @@ async function guarda(){
   try{
     const nuovi = await rpc('conv_pagina_leggi',{p_pass:PASS,p_dopo:ultimoId});
     (nuovi||[]).forEach(m => { ultimoId = Math.max(ultimoId, m.id); confermata(m); aggiungi(m); });
+    primoGiro = false;   // da qui in avanti quello che arriva e nuovo, e si legge a voce
 
     // chi sta lavorando adesso: costa un quarto di millisecondo, sta nel giro
     const ses = await rpc('conv_pagina_sessioni',{p_pass:PASS});
@@ -6369,7 +6926,16 @@ function entra(a, p){
 
 // ── la fascia delle sessioni ─────────────────────────────────────────────────
 const fascia = $('#sessioniFascia');
-if($('#sessioniApri')) $('#sessioniApri').addEventListener('click', () => fascia.classList.toggle('aperta'));
+if($('#sessioniApri')) $('#sessioniApri').addEventListener('click', () => {
+  const aperta = fascia.classList.toggle('aperta');
+  // aria-expanded stava fermo su "false" da sempre: chi legge la pagina con la
+  // voce sentiva "chiusa" anche a fascia aperta.
+  $('#sessioniApri').setAttribute('aria-expanded', aperta ? 'true' : 'false');
+  // Aprire non e solo piu spazio: a fascia aperta rientrano in elenco anche le
+  // sessioni chiuse, che nella riga stretta stanno fuori. Va rifatto il disegno,
+  // non basta il CSS.
+  try{ Sessioni.ridisegna(); }catch(e){}
+});
 
 // La pagina NON avvia sessioni da sola: mette la richiesta in coda, e la sessione
 // che ascolta la esegue. Le sessioni le fa nascere chi ha le braccia, non il vetro.
