@@ -277,11 +277,6 @@
   .msg .az:hover{color:var(--testo)}
   .msg .az-ascolta.in-lettura{color:var(--blu)}
   .msg .az-copia.fatto{color:var(--ok)}
-  /* il pezzo non detto di una battuta interrotta: stesso stile discreto
-     del resto della battuta, ma in grigio e in corsivo — si legge come
-     un'eco di quello che manca, non come testo vero e proprio */
-  .msg .resto{margin-top:7px;padding-top:6px;border-top:1px dashed var(--bordo);
-    font-size:13px;color:var(--fioco);font-style:italic}
 
   /* ── la battuta provvisoria ──────────────────────────────────────────────
      Quello che l'utente ha appena detto compare subito, prima che il
@@ -4193,52 +4188,10 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Flusso;
 
    3. chi manda il blob alla trascrizione deve chiamarlo col nome giusto:
       Orecchio.formato() dice mime ed estensione ('.webm' o '.m4a').
-
-   NOTA SUL RICHIAMO A VOCE («Athena», vedi piu' in basso nel file):
-   e' un meccanismo A PARTE, che non c'entra nulla con MediaRecorder ne' con
-   la trascrizione qui sopra. Usa SpeechRecognition del browser in ascolto
-   continuo SOLO per riconoscere la parola: non registra niente, non manda
-   niente, non passa mai dal ponte della voce. Vive per conto suo, acceso e
-   spento da chi chiama richiamo(true/false) — tipicamente mentre la voce
-   sintetica della pagina sta parlando e il microfono vero e' sospeso.
    ========================================================================= */
 
 const Orecchio = (function () {
   'use strict';
-
-  /* ---------------------------------------------------------------------
-     PAROLA DI RICHIAMO — VARIANTI TOLLERATE
-     Athena non pronuncera' mai il proprio nome (glielo vietano le sue
-     istruzioni): se il microfono sente questa parola, viene certamente da
-     chi ascolta e non dall'eco dell'altoparlante. Il riconoscimento del
-     browser la storpia spesso allo stesso modo: l'elenco sta qui, in cima,
-     cosi' si allarga senza andare a cercare nel resto del codice.
-     Valgono SOLO per la parola predefinita 'athena': chi chiama richiamo()
-     con una parola diversa ottiene solo il confronto esatto (normalizzato).
-     ------------------------------------------------------------------ */
-  const VARIANTI_ATHENA = [
-    'athena',   // corretta
-    'atena',    // pronuncia italiana: il suono "th" inglese non esiste
-    'a tena',   // il riconoscimento a volte spezza la parola in due
-    'antena'    // scambio th/n sentito spesso dal motore di Chrome
-  ];
-
-  // Quanto aspettare, dopo un onend non voluto del riconoscimento, prima di
-  // rimetterlo in moto. Un piccolo ritardo evita di rincorrersi in un ciclo
-  // strettissimo se il motore si ferma e riparte in loop.
-  const RICHIAMO_RIAVVIO_MS = 400;
-
-  // Oltre questo numero di ERRORI VERI consecutivi (non il normale silenzio,
-  // quello e' amministrazione ordinaria) il richiamo si arrende e lo dice:
-  // meglio dirlo chiaro che riprovare in silenzio senza che nessuno capisca
-  // perche' "Athena" ha smesso di funzionare.
-  const RICHIAMO_MAX_FALLIMENTI = 5;
-
-  // Il cuscinetto del richiamo: quanto aspettare dopo aver sentito la parola
-  // prima di consegnare la coda, per dare tempo al riconoscimento di finire
-  // di trascrivere una frase detta tutta attaccata ("Athena aspetta un
-  // attimo"). Vedi la nota sulla scelta (a) vs (b) nella consegna.
-  const RICHIAMO_CUSCINETTO_MS = 700;
 
   /* ---------------------------------------------------------------------
      COSTANTI REGOLABILI
@@ -4396,22 +4349,6 @@ const Orecchio = (function () {
   let onStato = function () {};
   let onLivello = function () {};
   let onGuaio = function () {};
-
-  /* ---------------------------------------------------------------------
-     STATO DEL RICHIAMO A VOCE («Athena»)
-     Completamente separato dal motore sopra: usa SpeechRecognition del
-     browser, non MediaRecorder, e non tocca ne' flusso ne' contesto ne'
-     registratore. Vive di suo, che l'ascolto normale sia acceso o no.
-     ------------------------------------------------------------------ */
-
-  let richiamoAttivoFlag = false;      // true tra richiamo(true) riuscito e richiamo(false)
-  let riconoscimento = null;           // istanza SpeechRecognition in ascolto, o null
-  let parolaRichiamoCorrente = 'athena';
-  let onRichiamoFn = function () {};
-  let riavvioRichiamoTimer = null;
-  let richiamoDebounceTimer = null;    // il cuscinetto: vedi trovaFineRichiamo/spara piu' sotto
-  let falliteDiFila = 0;               // errori VERI consecutivi (non il silenzio, quello e' normale)
-  let indiceUltimoSparoRichiamo = -1;  // ultimo indice di ev.results gia' segnalato: non si torna indietro
 
   /* ---------------------------------------------------------------------
      UTILITA'
@@ -4986,237 +4923,6 @@ const Orecchio = (function () {
   }
 
   /* ---------------------------------------------------------------------
-     RICHIAMO A VOCE — «Athena»
-     Ascolto sordo: SpeechRecognition del browser, in continuo, SOLO per
-     riconoscere la parola. Non registra niente, non manda niente, non
-     chiama il ponte della voce. Se il browser non ce l'ha (Safari iOS,
-     tipicamente), richiamo(true) torna false e non rompe nient'altro:
-     la pagina usera' il tasto.
-     ------------------------------------------------------------------ */
-
-  // Toglie gli accenti, la punteggiatura e le maiuscole: quello che resta e'
-  // solo lettere e spazi singoli, la forma su cui confrontare le varianti.
-  function normalizza(testo) {
-    return String(testo || '')
-      .toLowerCase()
-      .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // via gli accenti (marcatori diacritici NFD)
-      .replace(/[^a-z\s]/g, ' ')  // via punteggiatura e cifre: solo lettere e spazi
-      .replace(/\s+/g, ' ')
-      .trim();
-  }
-
-  // Cerca la parola di richiamo (o una delle sue storpiature, se e' 'athena')
-  // dentro un testo. Lavora parola per parola sul testo ORIGINALE (non
-  // normalizzato), cosi' da poter poi tagliare la coda con le parole vere
-  // dette dall'utente e non con la loro forma appiattita. Il confronto e' a
-  // parola intera (con i bordi \s/inizio/fine, non una sottostringa a caso):
-  // e' quello che tiene "antenna" fuori da "antena" — vedi le prove.
-  // Torna l'indice della prima parola SUBITO DOPO il richiamo trovato, o -1.
-  function trovaFineRichiamo(testoOriginale, parola) {
-    const base = normalizza(parola) || 'athena';
-    const varianti = (base === 'athena') ? VARIANTI_ATHENA : [base];
-    const parole = String(testoOriginale || '').trim().split(/\s+/).filter(Boolean);
-    if (!parole.length) return -1;
-    const normalizzate = parole.map(normalizza);
-    for (let i = 0; i < parole.length; i++) {
-      for (let v = 0; v < varianti.length; v++) {
-        const vParole = normalizza(varianti[v]).split(' ').filter(Boolean);
-        if (!vParole.length || i + vParole.length > normalizzate.length) continue;
-        let ok = true;
-        for (let k = 0; k < vParole.length; k++) {
-          if (normalizzate[i + k] !== vParole[k]) { ok = false; break; }
-        }
-        if (ok) return i + vParole.length;
-      }
-    }
-    return -1;
-  }
-
-  // Provabile a parte, come chiesto: vero se il testo contiene il richiamo.
-  function eRichiamo(testo, parola) {
-    return trovaFineRichiamo(testo, parola) >= 0;
-  }
-
-  function spara(coda) {
-    chiama(onRichiamoFn, { parola: parolaRichiamoCorrente, quando: Date.now(), coda: coda || '' });
-  }
-
-  // Esamina i risultati nuovi di un evento onresult. Un indice di ev.results
-  // gia' segnalato non si riconsidera mai (niente doppi scatti sulla stessa
-  // frase); uno nuovo che contiene il richiamo apre il cuscinetto (vedi sotto)
-  // se e' ancora provvisorio, o scatta subito se e' gia' definitivo.
-  function gestisciRisultatoRichiamo(ev) {
-    if (!richiamoAttivoFlag) return;
-    falliteDiFila = 0; // un risultato, anche solo provvisorio, prova che il motore funziona
-    const risultati = ev.results;
-    const daIndice = (typeof ev.resultIndex === 'number') ? ev.resultIndex : 0;
-    for (let i = daIndice; i < risultati.length; i++) {
-      if (i <= indiceUltimoSparoRichiamo) continue;
-      const risultato = risultati[i];
-      let transcript = '';
-      try { transcript = (risultato[0] && risultato[0].transcript) || ''; } catch (e) { continue; }
-      const fine = trovaFineRichiamo(transcript, parolaRichiamoCorrente);
-      if (fine < 0) continue;
-
-      const parole = transcript.trim().split(/\s+/).filter(Boolean);
-      const coda = parole.slice(fine).join(' ').trim();
-
-      if (richiamoDebounceTimer) { clearTimeout(richiamoDebounceTimer); richiamoDebounceTimer = null; }
-
-      if (risultato.isFinal) {
-        // Definitivo: non arrivano piu' revisioni per questo indice, si puo'
-        // consegnare subito senza aspettare il cuscinetto.
-        indiceUltimoSparoRichiamo = i;
-        spara(coda);
-      } else {
-        // SCELTA (a) — vedi consegna: si tiene il testo che il riconoscimento
-        // continua a produrre DOPO la parola, invece di bufferizzare audio
-        // grezzo. Se "Athena aspetta un attimo" viene detto tutto attaccato,
-        // il riconoscimento in continuo emette revisioni via via piu' lunghe
-        // dello STESSO indice: ogni revisione qui ricomincia il cuscinetto
-        // con la coda piu' fresca, e si consegna solo quando le revisioni si
-        // fermano (o arriva il definitivo). L'audio grezzo non serve: il
-        // riconoscimento del browser gia' tiene per noi il contesto recente,
-        // non c'e' nessun buco da colmare con dei byte.
-        const indiceCatturato = i;
-        richiamoDebounceTimer = setTimeout(function () {
-          richiamoDebounceTimer = null;
-          indiceUltimoSparoRichiamo = indiceCatturato;
-          spara(coda);
-        }, RICHIAMO_CUSCINETTO_MS);
-      }
-    }
-  }
-
-  function fermaRiconoscimento() {
-    if (riavvioRichiamoTimer) { clearTimeout(riavvioRichiamoTimer); riavvioRichiamoTimer = null; }
-    if (richiamoDebounceTimer) { clearTimeout(richiamoDebounceTimer); richiamoDebounceTimer = null; }
-    if (riconoscimento) {
-      const r = riconoscimento;
-      riconoscimento = null; // staccato SUBITO: i gestori del vecchio oggetto si vedono "non piu' miei"
-      try { r.onresult = null; r.onerror = null; r.onend = null; } catch (e) {}
-      try { r.stop(); } catch (e) { try { r.abort(); } catch (e2) {} }
-    }
-  }
-
-  function pianificaRiavvioRichiamo() {
-    if (riavvioRichiamoTimer) return; // gia' pianificato: non se ne accumulano due
-    riavvioRichiamoTimer = setTimeout(function () {
-      riavvioRichiamoTimer = null;
-      if (richiamoAttivoFlag) avviaRiconoscimento();
-    }, RICHIAMO_RIAVVIO_MS);
-  }
-
-  // Il riconoscimento del browser si ferma da solo di continuo (silenzio
-  // lungo, cambio scheda, capriccio di Safari): ogni onend non voluto da noi
-  // rimette in moto una istanza NUOVA (non si riusa mai un oggetto fermato),
-  // a meno che gli errori veri non si siano accumulati troppo — li' ci si
-  // arrende e lo si dice, invece di riprovare in eterno in silenzio.
-  function avviaRiconoscimento() {
-    if (!richiamoAttivoFlag) return; // richiamo(false) nel frattempo: non si parte
-    const Costruttore = (typeof window !== 'undefined') &&
-      (window.SpeechRecognition || window.webkitSpeechRecognition);
-    if (!Costruttore) return; // richiamo(true) l'ha gia' controllato: qui non dovrebbe capitare
-
-    let r;
-    try {
-      r = new Costruttore();
-    } catch (e) {
-      pianificaRiavvioRichiamo();
-      return;
-    }
-    r.lang = 'it-IT';
-    r.continuous = true;
-    r.interimResults = true;
-    indiceUltimoSparoRichiamo = -1;
-
-    r.onresult = function (ev) {
-      if (riconoscimento !== r) return; // istanza vecchia: si ignora
-      try { gestisciRisultatoRichiamo(ev); } catch (e) { /* un guaio qui non deve spegnere il richiamo */ }
-    };
-    r.onerror = function (ev) {
-      if (riconoscimento !== r) return;
-      const nome = (ev && ev.error) || '';
-      // 'no-speech' (silenzio) e 'aborted' (uno stop nostro) sono
-      // amministrazione ordinaria, non guasti: contarli come fallimenti
-      // farebbe arrendere il richiamo durante una pausa lunga di silenzio,
-      // che e' l'uso piu' normale mentre Athena sta parlando.
-      if (nome !== 'no-speech' && nome !== 'aborted') falliteDiFila++;
-    };
-    r.onend = function () {
-      if (riconoscimento !== r) return; // gia' sostituita o fermata altrove
-      riconoscimento = null;
-      if (!richiamoAttivoFlag) return; // richiamo(false) nel frattempo: non si riparte
-      if (falliteDiFila >= RICHIAMO_MAX_FALLIMENTI) {
-        richiamoAttivoFlag = false;
-        guaio('Il riconoscimento vocale del richiamo si e\' fermato troppe volte di fila: usa il tasto per interrompere Athena.');
-        return;
-      }
-      pianificaRiavvioRichiamo();
-    };
-
-    riconoscimento = r;
-    try {
-      r.start();
-    } catch (e) {
-      riconoscimento = null;
-      falliteDiFila++;
-      pianificaRiavvioRichiamo();
-    }
-  }
-
-  // Vero se questo browser sa fare il richiamo a voce. La pagina lo chiama
-  // per decidere se dire a Sante "usa il tasto" (tipicamente Safari iOS).
-  function richiamoDisponibile() {
-    return !!((typeof window !== 'undefined') && (window.SpeechRecognition || window.webkitSpeechRecognition));
-  }
-
-  // Accende o spegne l'ascolto sordo. Non tocca MAI il motore di trascrizione
-  // qui sopra (flusso/registratore/AudioContext): chi vuole anche mettere in
-  // pausa quello chiama sospendi()/riprendi() a parte (vedi consegna per il
-  // cablaggio in app.js). Cosi' i due motori non si contendono mai lo stesso
-  // oggetto, e "chiudere l'uno prima di aprire l'altro" e' automatico: il
-  // riconoscimento e' SEMPRE fermo, non solo in pausa, in ogni istante in cui
-  // richiamo(false) e' stato l'ultima chiamata.
-  function richiamo(accesoRichiesto, parola) {
-    const parolaVoluta = (typeof parola === 'string' && parola.trim()) ? parola.trim() : 'athena';
-
-    if (!accesoRichiesto) {
-      richiamoAttivoFlag = false;
-      fermaRiconoscimento();
-      return true;
-    }
-
-    if (!richiamoDisponibile()) {
-      guaio('Il richiamo a voce («' + parolaVoluta + '») non e\' disponibile su questo browser: usa il tasto per interromperla.');
-      return false;
-    }
-
-    parolaRichiamoCorrente = parolaVoluta;
-    // Gia' in ascolto: la parola nuova (se e' cambiata) vale da subito sui
-    // prossimi risultati, senza bisogno di fermare e riavviare niente.
-    if (richiamoAttivoFlag && riconoscimento) return true;
-
-    richiamoAttivoFlag = true;
-    falliteDiFila = 0;
-    avviaRiconoscimento();
-    return true;
-  }
-
-  // Registra chi va avvisato quando la parola viene sentita.
-  function suRichiamo(fn) {
-    if (typeof fn === 'function') onRichiamoFn = fn;
-  }
-
-  // I tre modi, in una parola sola: comodo per chi disegna l'indicatore a
-  // schermo senza dover conoscere acceso()/sospeso() a parte.
-  function modo() {
-    if (!acceso) return 'spento';
-    if (sospeso) return 'sordo';
-    return 'ascolta';
-  }
-
-  /* ---------------------------------------------------------------------
      INTERFACCIA PUBBLICA
      Tutte le funzioni sono idempotenti e tolleranti all'ordine sbagliato:
      nessuna deve poter lanciare in faccia a chi la chiama.
@@ -5559,12 +5265,7 @@ const Orecchio = (function () {
     riprendi: riprendi,
     formato: formato,
     diagnosi: diagnosi,
-    soloRumore: soloRumore,
-    modo: modo,
-    richiamo: richiamo,
-    suRichiamo: suRichiamo,
-    eRichiamo: eRichiamo,
-    richiamoDisponibile: richiamoDisponibile
+    soloRumore: soloRumore
   };
 })();
 </script>
@@ -5597,14 +5298,6 @@ const Orecchio = (function () {
    Il modulo non tocca il DOM della pagina (a parte un ascoltatore temporaneo
    sul primo clic, quando il browser blocca l'audio) e non lancia mai
    eccezioni: tutto quello che va storto esce da onGuaio, in italiano.
-
-   INTERROMPERE SENZA PERDERE IL FILO. zitta() non si limita a fermare
-   l'audio: dice anche esattamente dov'era rimasta, per pezzi (vedi il
-   commento su esitoInterruzione() per la scelta sul pezzo a meta'). Chi
-   vuole sapere cosa sta succedendo mentre ATHENA parla usa staLeggendo();
-   chi vuole riprendere il non-detto usa finisci(resto); chi vuole essere
-   avvisato a ogni interruzione (per salvarla, tipicamente) usa
-   suInterruzione(fn) invece di richiamare zitta() da un altro punto.
 
    USO MINIMO:
      Bocca.prepara({ponte:'https://xxx.supabase.co/functions/v1/mind-voce',
@@ -5679,18 +5372,6 @@ const Bocca = (function () {
   let elementoAudio = null;      // un solo <audio>, riusato per sempre
   let urlCorrente = null;        // l'object URL in uso, da revocare sempre
   let fermaSuonoCorrente = null; // aggancio per interrompere la riproduzione
-
-  // Il pezzo che il motore ha in mano ADESSO: tolto dalla coda con lo shift,
-  // ma non ancora concluso (in attesa di rete, o che sta suonando). Serve a
-  // zitta() e staLeggendo() per sapere esattamente dove ci si e' fermati:
-  // {lotto, indice} oppure null se il motore e' fra un pezzo e l'altro (o
-  // fermo). Si azzera appena il pezzo si conclude in un modo qualsiasi
-  // (detto, guaio, interrotto) o torna in coda (bloccato dal browser).
-  let pezzoInGioco = null;
-
-  // La funzione che la pagina registra con Bocca.suInterruzione(): chiamata
-  // una volta sola a ogni zitta() che interrompe davvero qualcosa.
-  let alSuInterruzione = null;
 
   let anticipo = null;           // {voce, promessa} — l'unica richiesta in anticipo
   let richiesteInVolo = new Set(); // AbortController delle fetch aperte
@@ -5825,23 +5506,10 @@ const Bocca = (function () {
      di quanti ne restano, cosi' la Promise restituita si risolve quando sono
      finiti TUTTI, e si risolve comunque — anche se la coda viene svuotata da
      zitta() — perche' chi ha atteso non deve restare appeso per sempre.
-
-     Il lotto porta anche il testo intero e l'elenco dei pezzi (nello stesso
-     ordine in cui sono stati tagliati da spezza()): e' quello che permette a
-     zitta() di ricostruire "cosa era gia' stato detto" e "cosa resta", senza
-     doverlo indovinare a posteriori dai pezzi gia' consumati.
      ------------------------------------------------------------------ */
 
-  function nuovoLotto(pezzi, testoIntero) {
-    const lotto = {
-      pezzi: pezzi,             // array di stringhe, un elemento per pezzo
-      testoIntero: testoIntero, // il testo pulito, prima del taglio in pezzi
-      pezziTotali: pezzi.length,
-      rimasti: pezzi.length,
-      chiuso: false,
-      risolvi: null,
-      esito: null
-    };
+  function nuovoLotto(quanti) {
+    const lotto = { rimasti: quanti, chiuso: false, risolvi: null, esito: null };
     lotto.promessa = new Promise(function (risolvi) { lotto.risolvi = risolvi; });
     return lotto;
   }
@@ -6165,11 +5833,6 @@ const Bocca = (function () {
 
         const voce = coda.shift();
 
-        // Da qui in poi, fino a quando non si conclude in un modo o
-        // nell'altro, questo e' IL pezzo che si sta dicendo (o tentando di
-        // dire). zitta() lo legge per sapere dove ci si e' fermati.
-        pezzoInGioco = { lotto: voce.lotto, indice: voce.indice };
-
         // 1. L'audio: o e' gia' pronto dall'anticipo, o si chiede adesso.
         let esitoRichiesta;
         if (anticipo && anticipo.voce === voce && anticipo.mia === mia) {
@@ -6185,18 +5848,16 @@ const Bocca = (function () {
           esitoRichiesta = await chiediAlPonte(voce.testo, mia);
         }
 
-        if (mia !== generazione || !accesaOra) { scalaLotto(voce.lotto, 'interrotto'); pezzoInGioco = null; return; }
+        if (mia !== generazione || !accesaOra) { scalaLotto(voce.lotto, 'interrotto'); return; }
 
         if (esitoRichiesta.stato === 'annullata') {
           scalaLotto(voce.lotto, 'interrotto');
-          pezzoInGioco = null;
           return;
         }
 
         if (esitoRichiesta.stato === 'guaio') {
           guaio(esitoRichiesta.messaggio);
           scalaLotto(voce.lotto, 'guaio');
-          pezzoInGioco = null;
           if (esitoRichiesta.fatale) {
             // 401: continuare a bussare non serve. Si butta via tutto.
             svuotaCoda('guaio');
@@ -6214,31 +5875,25 @@ const Bocca = (function () {
 
         if (esitoSuono === 'bloccato') {
           // Il pezzo torna in testa alla coda e si aspetta il clic: il lotto
-          // non si scala, perche' la frase non e' ancora stata detta. Non e'
-          // neanche piu' "in gioco": e' di nuovo in attesa, come tutti gli
-          // altri pezzi in coda.
+          // non si scala, perche' la frase non e' ancora stata detta.
           coda.unshift(voce);
           anticipo = null;
-          pezzoInGioco = null;
           chiediSblocco();
           return;
         }
 
         if (esitoSuono === 'interrotto' || mia !== generazione) {
           scalaLotto(voce.lotto, 'interrotto');
-          pezzoInGioco = null;
           return;
         }
 
         if (esitoSuono === 'errore') {
           guaio('Non sono riuscita a suonare un pezzo della risposta.');
           scalaLotto(voce.lotto, 'guaio');
-          pezzoInGioco = null;
           continue;
         }
 
         scalaLotto(voce.lotto, 'detto');
-        pezzoInGioco = null;
       }
 
     } catch (e) {
@@ -6299,83 +5954,6 @@ const Bocca = (function () {
   }
 
   /* ---------------------------------------------------------------------
-     DOVE SIAMO RIMASTI
-     Una sola funzione che risponde alla domanda "quale pezzo, di quale
-     lotto, e' quello su cui siamo fermi adesso?", usata sia da zitta() per
-     costruire il referto dell'interruzione sia da staLeggendo() per dire
-     alla pagina cosa sta succedendo in questo istante.
-
-     Il pezzo "corrente" e':
-       - quello che il motore ha in mano (pezzoInGioco), se ce n'e' uno: in
-         attesa di rete o gia' in riproduzione;
-       - altrimenti il primo della coda, se la coda non e' vuota: un pezzo
-         che il motore non ha ancora toccato (per esempio il motore deve
-         ancora ripartire, oppure siamo fermi in attesa del clic di sblocco
-         e il pezzo e' li' che aspetta in testa).
-       - altrimenti null: non c'e' niente in corso.
-     ------------------------------------------------------------------ */
-
-  function trovaLetturaCorrente() {
-    if (pezzoInGioco) return { lotto: pezzoInGioco.lotto, indice: pezzoInGioco.indice };
-    if (coda.length > 0) return { lotto: coda[0].lotto, indice: coda[0].indice };
-    return null;
-  }
-
-  // Esportata: {testo, pezzoCorrente, pezziTotali} oppure null se non si sta
-  // dicendo niente. pezzoCorrente e' 1-based (il primo pezzo e' 1, non 0):
-  // e' il numero che ha senso mostrare a schermo ("pezzo 3 di 7"), non un
-  // indice di programmazione.
-  function staLeggendo() {
-    const trovata = trovaLetturaCorrente();
-    if (!trovata) return null;
-    return {
-      testo: trovata.lotto.testoIntero,
-      pezzoCorrente: trovata.indice + 1,
-      pezziTotali: trovata.lotto.pezziTotali
-    };
-  }
-
-  // Il referto per zitta(): vedi il contratto nel commento di zitta() stessa.
-  //
-  // SCELTA SUL PEZZO A META': il pezzo che il motore ha in mano quando arriva
-  // l'interruzione va nel RESTO, non nel DETTO. Motivo: quel pezzo puo' essere
-  // stato suonato per intero meno l'ultima sillaba, oppure per niente (era
-  // ancora in viaggio dal ponte) — la differenza non si puo' sapere qui senza
-  // tracciare i millisecondi di riproduzione, e sbagliare per difetto e' il
-  // male minore. Se lo mettessimo nel DETTO e in realta' non era ancora
-  // partito, chi riprende salterebbe un pezzo intero di frase senza che
-  // nessuno l'abbia mai sentito. Se lo mettiamo nel RESTO e in realta' era
-  // quasi finito, chi riprende sente una mezza ripetizione: fastidioso, ma
-  // molto meno grave di un buco nel discorso. Ripetere un po' e' accettabile,
-  // saltare non lo e'.
-  function esitoInterruzione() {
-    const quando = Date.now();
-    const trovata = trovaLetturaCorrente();
-
-    if (!trovata) {
-      return {
-        interrotta: false, testo: null, detto: null, resto: null,
-        pezziDetti: null, pezziTotali: null, quando: quando
-      };
-    }
-
-    const lotto = trovata.lotto;
-    const indice = trovata.indice;
-    const dettiArr = lotto.pezzi.slice(0, indice);   // solo i pezzi finiti prima di questo
-    const restoArr = lotto.pezzi.slice(indice);      // questo pezzo (a meta') + i successivi
-
-    return {
-      interrotta: true,
-      testo: lotto.testoIntero,
-      detto: dettiArr.join(' '),
-      resto: restoArr.join(' '),
-      pezziDetti: dettiArr.length,
-      pezziTotali: lotto.pezziTotali,
-      quando: quando
-    };
-  }
-
-  /* ---------------------------------------------------------------------
      FUNZIONI PUBBLICHE
      Tutte a prova di ordine sbagliato e di doppia chiamata, e nessuna lancia.
      ------------------------------------------------------------------ */
@@ -6408,8 +5986,8 @@ const Bocca = (function () {
       const pezzi = spezza(pulito);
       if (pezzi.length === 0) return Promise.resolve({ completato: false, motivo: 'vuoto' });
 
-      const lotto = nuovoLotto(pezzi, pulito);
-      const voci = pezzi.map(function (p, i) { return { testo: p, lotto: lotto, indice: i }; });
+      const lotto = nuovoLotto(pezzi.length);
+      const voci = pezzi.map(function (p) { return { testo: p, lotto: lotto }; });
 
       const priorita = !!(opzioni && opzioni.priorita);
       if (priorita) {
@@ -6431,21 +6009,8 @@ const Bocca = (function () {
     }
   }
 
-  // Restituisce SEMPRE un oggetto (mai niente, mai un'eccezione):
-  //   {interrotta:true,  testo, detto, resto, pezziDetti, pezziTotali, quando}
-  //   {interrotta:false, testo:null, detto:null, resto:null,
-  //                      pezziDetti:null, pezziTotali:null, quando}
-  // interrotta:false vuol dire che non si stava dicendo niente: tutti gli
-  // altri campi sono null, non stringhe vuote, cosi' non si confonde "non
-  // c'era niente" con "c'era un testo vuoto".
-  //
-  // Il referto va costruito PRIMA di toccare qualunque stato (generazione,
-  // coda, pezzoInGioco...): e' una fotografia di come stavano le cose
-  // nell'istante in cui zitta() e' stata chiamata.
   function zitta() {
     try {
-      const risultato = esitoInterruzione();
-
       // PRIMA COSA, prima di ogni altra: cambiare generazione. Da questo
       // istante ogni richiesta in volo e ogni riproduzione in corso sono
       // vecchie, e quando arriveranno si accorgeranno da sole di non dover
@@ -6461,7 +6026,6 @@ const Bocca = (function () {
       richiesteInVolo.clear();
 
       anticipo = null;
-      pezzoInGioco = null;
       svuotaCoda('interrotto');
 
       // Riproduzione in corso: chiusa e URL revocato dal suo stesso chiudi().
@@ -6483,39 +6047,10 @@ const Bocca = (function () {
       // resterebbe sorda per sempre perche' onFine non arriverebbe piu'.
       annunciaFine();
 
-      // Chi si e' iscritto con suInterruzione() lo sappia — ma solo se e'
-      // stato interrotto davvero qualcosa: un zitta() a vuoto non e' un
-      // evento da salvare nel database. In un blocco tutto suo: un errore
-      // della pagina qui non deve impedire a zitta() di restituire il
-      // referto (che a questo punto e' comunque gia' un fatto compiuto).
-      if (risultato.interrotta && typeof alSuInterruzione === 'function') {
-        try { alSuInterruzione(risultato); } catch (e) { /* niente */ }
-      }
-
-      return risultato;
+      return true;
     } catch (e) {
-      return {
-        interrotta: false, testo: null, detto: null, resto: null,
-        pezziDetti: null, pezziTotali: null, quando: Date.now()
-      };
+      return false;
     }
-  }
-
-  // Riprende a leggere un pezzo di testo lasciato indietro: e' esattamente
-  // una lettura normale (stessa pulizia, stesso taglio in pezzi, stessa
-  // coda, in fondo e non in priorita'), non un canale a parte. Il bottone
-  // "finisci di dirlo" chiama questa; il testo da passare e' il campo
-  // `resto` che zitta() ha restituito al momento dell'interruzione.
-  function finisci(resto) {
-    return parla(resto);
-  }
-
-  // Registra (sostituendola, se gia' impostata) la funzione chiamata a ogni
-  // interruzione vera: riceve lo stesso oggetto restituito da zitta(). Serve
-  // ad app.js per salvare il non-detto senza dover richiamare zitta() da un
-  // altro punto o duplicare la logica di ricostruzione.
-  function suInterruzione(fn) {
-    alSuInterruzione = (typeof fn === 'function') ? fn : null;
   }
 
   function accesa(vero_falso) {
@@ -6555,10 +6090,7 @@ const Bocca = (function () {
     zitta: zitta,
     accesa: accesa,
     eAccesa: eAccesa,
-    inCorso: inCorso,
-    staLeggendo: staLeggendo,
-    finisci: finisci,
-    suInterruzione: suInterruzione
+    inCorso: inCorso
   };
 
   ['onInizio', 'onFine', 'onGuaio'].forEach(function (nome) {
@@ -10243,19 +9775,11 @@ function aggiungi(m){
   // i pulsantini copia/ascolta chiesti da Sante il 29/08: copia su OGNI battuta,
   // ascolta solo su ATHENA. Piccoli e discreti (vedi CSS), MAI sulle provvisorie
   // (questa funzione non le disegna: le provvisorie le fa mostraProvvisoria).
-  // il pezzo non ancora detto (m.resto, da conv_pagina_leggi) quando una
-  // battuta di ATHENA e' stata interrotta a meta': in grigio, con un
-  // bottoncino per riprenderla. Niente ne' l'uno ne' l'altro se non c'e'
-  // un resto vero (battuta mai interrotta, o gia' finita).
-  const escResto = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-  const haResto = (m.chi==='claude' && m.resto != null && String(m.resto).trim() !== '');
   d.innerHTML = '<div class="quando">'+(m.chi==='sante'?'tu':'ATHENA')+' · '+ora(m.at)+'</div>'
     + html(m.testo)
-    + (haResto ? '<div class="resto">'+escResto(m.resto)+'</div>' : '')
     + '<div class="azioni">'
     +   '<button class="az az-copia" type="button">copia</button>'
     +   (m.chi==='claude' ? '<button class="az az-ascolta" type="button" aria-pressed="false">ascolta</button>' : '')
-    +   (haResto ? '<button class="az az-finisci" type="button">finisci di dirlo</button>' : '')
     + '</div>';
   discorso.appendChild(d);
   discorso.scrollTop = discorso.scrollHeight;
@@ -10264,8 +9788,6 @@ function aggiungi(m){
   if(bottoneCopia) bottoneCopia.addEventListener('click', () => copia(m.testo, bottoneCopia));
   const bottoneAscolta = d.querySelector('.az-ascolta');
   if(bottoneAscolta) bottoneAscolta.addEventListener('click', () => leggi(m, true));
-  const bottoneFinisci = d.querySelector('.az-finisci');
-  if(bottoneFinisci) bottoneFinisci.addEventListener('click', () => { try{ Bocca.finisci(m.resto); }catch(e){} });
 
   // gli allegati (se ci sono) vanno in vetrina come una scheda leggibile
   try{ Vetrina.allegati(m); }catch(e){}
@@ -10310,7 +9832,6 @@ async function copia(testo, bottone){
 }
 
 let leggendoId = null;   // l'id della battuta che Bocca sta leggendo adesso, o null
-let ultimaInterruzioneVoce = null; // ultimo referto di Bocca.zitta() via suInterruzione: {testo,detto,resto,pezziDetti,pezziTotali,quando} o null
 function segnaLettura(id, attiva){
   const bt = discorso.querySelector('.msg[data-id="'+id+'"] .az-ascolta');
   if(!bt) return;
@@ -10407,54 +9928,15 @@ function voceParlaLivelloSimulato(){
 }
 Bocca.onInizio = () => {
   try{ Orecchio.sospendi(); }catch(e){}
-  // ascolto sordo: mentre lei parla il microfono non si spegne, ascolta SOLO
-  // la parola "Athena" (che lei stessa non dira' mai) per poter interrompere
-  // a mani libere. Se il browser non lo sa fare (Safari iOS), richiamo(true)
-  // torna false senza rompere niente: resta il tasto.
-  try{ Orecchio.richiamo(true); }catch(e){}
   clearInterval(voceParlaTimer);
   voceParlaTimer = setInterval(() => { try{ Grafico.voce(voceParlaLivelloSimulato(),'parla'); }catch(e){} }, 60);
 };
 Bocca.onFine   = () => {
   try{ Orecchio.riprendi(); }catch(e){}
-  try{ Orecchio.richiamo(false); }catch(e){}
   clearInterval(voceParlaTimer); voceParlaTimer = null;
   try{ Grafico.voceFine(); }catch(e){}
 };
 Bocca.onGuaio  = messaggio => { istruzione.textContent = messaggio; segnala('voce: '+messaggio); };
-
-// il richiamo a voce ("Athena"), sentito mentre lei parla: la si interrompe
-// e, se il riconoscimento ha gia' catturato qualcosa SUBITO DOPO la parola
-// (il cuscinetto di Orecchio), lo si tratta come se l'utente l'avesse detto
-// col microfono normale — stesso filtro sul rumore, stessa consegna.
-Orecchio.suRichiamo(info => {
-  try{ Bocca.zitta(); }catch(e){}
-  const coda = ((info && info.coda) || '').trim();
-  if(coda && !Orecchio.soloRumore(coda)){ mostraProvvisoria(coda); manda(coda); }
-});
-
-// Ogni interruzione vera (tasto, parola chiave «Athena», cambio di battuta da
-// leggere...) arriva qui col referto di bocca.js: cosa era gia' stato detto,
-// cosa resta da dire. Si tiene a portata di mano in ultimaInterruzioneVoce e
-// si manda al database con la RPC VERA (non la conv_pagina_interruzione_voce
-// proposta "da confermare": verificata su pg_proc ed e' conv_pagina_interrotta,
-// che vuole p_id — l'id della battuta, non il testo per intero — oltre a
-// p_detto/p_resto). p_id e' leggendoId: e' l'unica variabile che tiene l'id
-// della battuta che Bocca sta leggendo nell'istante dell'interruzione (zitta()
-// e' sincrona, quindi qui dentro leggendoId e' ancora quello giusto — leggi()
-// lo azzera solo DOPO aver chiamato Bocca.zitta()).
-Bocca.suInterruzione(r => {
-  ultimaInterruzioneVoce = r;
-  if(leggendoId == null) return;   // niente battuta in corso: niente id da salvare
-  try{
-    rpc('conv_pagina_interrotta', {
-      p_pass: PASS,
-      p_id: leggendoId,
-      p_detto: r.detto,
-      p_resto: r.resto
-    }).catch(()=>{});
-  }catch(e){}
-});
 
 // il pallino vicino al titolo: acceso quando c'e' almeno una richiesta che
 // aspetta una risposta, spento appena non ce n'e' più nessuna — la conta la
@@ -10498,7 +9980,7 @@ const statiOrecchio = {
   ascolto: ['ascolta','ti ascolto'],
   parla:   ['ascolta','stai parlando'],
   manda:   ['lavora','trascrivo…'],
-  sospeso: ['lavora','parlo io — di\' «Athena» per interrompermi'],
+  sospeso: ['lavora','parlo io'],
   spento:  ['pronto','microfono spento']
 };
 
@@ -10541,17 +10023,6 @@ function spegniMicrofono(motivo){
 }
 
 micro.addEventListener('click', () => {
-  // se ATHENA sta parlando, il tasto la ferma e apre l'ascolto in un gesto
-  // solo (chiesto il 30/08): niente doppio tocco. Il salvataggio del
-  // non-detto e' automatico, tramite Bocca.suInterruzione gia' agganciato
-  // sopra — non serve richiamare conv_pagina_interrotta qui.
-  let parlaAdesso = false;
-  try{ parlaAdesso = Bocca.inCorso(); }catch(e){}
-  if(parlaAdesso){
-    try{ Bocca.zitta(); }catch(e){}
-    accendiMicrofono();
-    return;
-  }
   if(Orecchio.acceso()) spegniMicrofono(); else accendiMicrofono();
 });
 
