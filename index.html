@@ -16590,6 +16590,120 @@ async function prendiGrafo(){
 // ── il giro: messaggi, stato, e ogni tanto il flusso ─────────────────────────
 let giroInCorso = false;
 
+/* ── I COMANDI CHE ARRIVANO DAL DATABASE ─────────────────────────────────────
+   Una sessione scrive in conv_comandi, la pagina li legge nello STESSO giro con
+   cui legge le battute e li applica senza ricaricare. Sei comandi e non uno di
+   piu': il database stesso non ne accetta altri (vincolo conv_comandi_comando_check),
+   e quello che la pagina non sa fare lo DICE nell'esito invece di tacere.
+   Lavoro 13, 1/09/2026. */
+let ultimoComando = 0;
+let cmStileMesso = false;
+
+function cmStile(){
+  if(cmStileMesso) return;
+  cmStileMesso = true;
+  const s = document.createElement('style');
+  s.id = 'cm-stile';
+  s.textContent =
+    '@keyframes cm-guarda{0%{box-shadow:0 0 0 0 rgba(76,141,246,.55)}' +
+      '70%{box-shadow:0 0 0 6px rgba(76,141,246,.18),0 0 26px 6px rgba(76,141,246,.30)}' +
+      '100%{box-shadow:0 0 0 0 rgba(76,141,246,0)}}' +
+    '.cm-guarda{animation:cm-guarda 1.1s ease-out 2;' +
+      'outline:2px solid var(--blu,#4C8DF6);outline-offset:-2px}' +
+    /* chi ha chiesto meno movimento non deve perdere il segnale: li' l'alone
+       resta fermo, come fa gia' il microfono acceso */
+    '@media (prefers-reduced-motion:reduce){.cm-guarda{animation:none;' +
+      'box-shadow:0 0 0 6px rgba(76,141,246,.18),0 0 22px rgba(76,141,246,.35)}}';
+  document.head.appendChild(s);
+}
+
+/* i riquadri si nominano in italiano, non con un selettore: chi comanda non
+   deve sapere com'e' fatto l'HTML, e se domani cambia un id si cambia qui */
+const CM_RIQUADRI = {
+  chat:'#discorso', discorso:'#discorso',
+  mente:'#graficoBox', grafico:'#graficoBox',
+  artefatti:'#vetrinaBox', vetrina:'#vetrinaBox',
+  flusso:'#flussoBox',
+  sessioni:'#sessioniFascia', collaboratori:'#sessioniFascia',
+  permessi:'#permessiBox', autorizzazioni:'#permessiBox',
+  aspettano:'#aspettano'
+};
+
+function cmEvidenzia(nome, secondi){
+  cmStile();
+  const sel = CM_RIQUADRI[String(nome||'').toLowerCase().trim()];
+  if(!sel) return 'riquadro che non conosco: ' + nome;
+  const el = document.querySelector(sel);
+  if(!el) return 'riquadro non in pagina adesso: ' + nome;
+  el.classList.add('cm-guarda');
+  const ms = Math.max(1000, Math.min(15000, (Number(secondi)||4) * 1000));
+  setTimeout(function(){ try{ el.classList.remove('cm-guarda'); }catch(e){} }, ms);
+  try{ el.scrollIntoView({block:'nearest', behavior:'smooth'}); }catch(e){}
+  return 'fatto';
+}
+
+function cmApriArtefatto(id){
+  /* la Vetrina non espone un modo per aprire un artefatto: si passa da dove
+     passerebbe il dito di Sante, cioe' i due bottoni veri. */
+  const btn = document.querySelector('[data-vt="artefatti"]');
+  if(!btn) return 'la vetrina non c e';
+  if(btn.getAttribute('aria-pressed') !== 'true') btn.click();
+  if(id === undefined || id === null || id === '') return 'fatto: elenco artefatti';
+  const pulito = String(id).replace(/[^0-9A-Za-z_-]/g, '');
+  const riga = document.querySelector('.vt-art-item[data-art-id="' + pulito + '"]');
+  if(!riga) return 'artefatto non ancora arrivato in pagina: ' + pulito;
+  riga.click();
+  return 'fatto';
+}
+
+function cmColonne(chat, destra){
+  const c = document.querySelector('.colonne');
+  if(!c) return 'colonne non in pagina';
+  if((chat === undefined || chat === null) && (destra === undefined || destra === null)){
+    c.style.gridTemplateColumns = '';
+    return 'fatto: larghezze rimesse come erano';
+  }
+  const a = Math.max(0.5, Math.min(4, Number(chat)   || 1.2));
+  const b = Math.max(0.5, Math.min(4, Number(destra) || 1));
+  c.style.gridTemplateColumns = 'minmax(320px,' + a + 'fr) minmax(300px,' + b + 'fr)';
+  return 'fatto';
+}
+
+function cmEsegui(c){
+  const a = (c && c.argomenti) || {};
+  switch(c.comando){
+    case 'mente_ingrandisci': mostraGrande(true);  return 'fatto';
+    case 'mente_riduci':      mostraGrande(false); return 'fatto';
+    case 'apri_scheda':
+      /* «scheda» qui e' la linguetta, come la chiama la pagina stessa. Le
+         schede del vault (vault_md) la pagina non le sa ancora mostrare: lo
+         dice, invece di far finta di aver fatto qualcosa. */
+      if(a.chiave) return 'le schede del vault non le so ancora mostrare: ' + a.chiave;
+      { const q = (a.quale === 'flusso') ? 'flusso' : 'conversazione';
+        apri(q);
+        return 'fatto: ' + q; }
+    case 'apri_artefatto': return cmApriArtefatto(a.id);
+    case 'evidenzia':      return cmEvidenzia(a.riquadro, a.secondi);
+    case 'colonne':        return cmColonne(a.chat, a.destra);
+  }
+  return 'comando che non conosco: ' + c.comando;
+}
+
+async function cmGiro(){
+  /* in seconda fila comanda un'altra finestra: due finestre che muovono le
+     stesse cose insieme sono lo stesso guaio da cui nasce Unica. */
+  if(inSecondaFila) return;
+  const cmd = await rpc('conv_pagina_comandi',{p_pass:PASS,p_dopo:ultimoComando});
+  if(!cmd || !cmd.length) return;
+  for(const c of cmd){
+    ultimoComando = Math.max(ultimoComando, c.id);
+    let esito;
+    try{ esito = cmEsegui(c) || 'fatto'; }
+    catch(e){ esito = 'guaio: ' + ((e && e.message) ? e.message : String(e)); }
+    try{ await rpc('conv_pagina_comando_fatto',{p_pass:PASS,p_id:c.id,p_esito:String(esito).slice(0,300)}); }catch(e){}
+  }
+}
+
 async function guarda(){
   // un giro alla volta: due giri insieme disegnano le stesse battute due volte.
   // E mai in seconda fila: comanda un'altra finestra.
@@ -16636,6 +16750,9 @@ async function guarda(){
 
     // le richieste di sessione nuova fatte col bottone «+ nuova»
     try{ Nascite.giro(); }catch(e){}
+
+    // i comandi scritti da una sessione: muovono la pagina senza ricaricarla
+    try{ await cmGiro(); }catch(e){}
 
     const s = await rpc('conv_pagina_stato',{p_pass:PASS});
     if(inSecondaFila) return;   // la pastiglia non deve dire «ci sto lavorando» da ferma
