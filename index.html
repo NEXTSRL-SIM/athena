@@ -1673,7 +1673,15 @@ const Grafico = (function () {
         // visibili le connessioni». Sopra il 0,45 la nuvola diventa una
         // ragnatela fitta e le sfere ci si perdono dentro — questo e' il punto
         // in cui la struttura si legge e le sfere restano le protagoniste.
-        ctx.strokeStyle = str(COL_LINEA, (0.36 + a.flusso * 0.40 + (a.attenzione || 0) * 0.22) * op * smorzo);
+        // NEL PICCOLO LE LINEE SI FANNO DA PARTE. Stessa nuvola, stesso numero
+        // di collegamenti, ma in un telaio da 240 px si accavallano e diventano
+        // una ragnatela in cui le sfere spariscono; ingrandito lo stesso disegno
+        // respira. Quindi l'opacita' segue la misura del telaio: piena da
+        // grande, poco piu' di meta' nella miniatura. Il flusso invece NON si
+        // attenua: quando passa qualcosa si deve vedere a qualunque misura.
+        const tenue = 0.55 + 0.45 * Math.min(1, Math.min(L, A) / 520);
+        ctx.strokeStyle = str(COL_LINEA,
+          (0.36 * tenue + a.flusso * 0.40 + (a.attenzione || 0) * 0.22) * op * smorzo);
         // linee fini: il collegamento si legge, non pesa
         // anche il tratto: 0.62 a riposo (era 0.42, un capello) e 1.1 quando
         // ci passa qualcosa — la differenza si vede da lontano, non solo da vicino
