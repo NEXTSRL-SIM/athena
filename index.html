@@ -16956,7 +16956,7 @@ $('#dimentica').onclick = () => {
   chiediIngresso('valori dimenticati su questo dispositivo');
 };
 
-function entra(a, p){
+function entra(a, p, senzaGesto){
   ANON = a; PASS = p; ingressoAperto = false;
   cassetto.scrivi({anon:a, pass:p});
   pannelloIngresso.classList.remove('serve');
@@ -17008,7 +17008,7 @@ function entra(a, p){
 
   accendiBattito();
   prendiGrafo();
-  salutaSante();
+  salutaSante(senzaGesto);
 }
 
 // ── IL SALUTO, e perche' vale piu' della cortesia ───────────────────────────
@@ -17018,7 +17018,7 @@ function entra(a, p){
 // consuma il permesso del browser e lo tiene buono per tutta la sessione.
 // Quello che prima era un avviso giallo adesso e' un buongiorno.
 const ULTIMA_VISITA = 'mind.ultimaVisita';
-function salutaSante(){
+function salutaSante(senzaGesto){
   let mancatoDa = null;   // null = prima volta di cui si abbia notizia
   try{
     const prima = Number(localStorage.getItem(ULTIMA_VISITA));
@@ -17034,8 +17034,28 @@ function salutaSante(){
   let frase = null;
   try{ frase = Frasi.saluto(mancatoDa); }catch(e){}
   if(!frase) return;
-  try{ Bocca.parla(frase); }catch(e){}
-  segnala('saluto: ' + frase);
+
+  const dillo = () => {
+    try{ Bocca.parla(frase); }catch(e){}
+    segnala('saluto: ' + frase);
+  };
+
+  // SE SI ENTRA SENZA UN GESTO il saluto non parte adesso: aspetta il primo tocco.
+  // Il lasciapassare gia salvato fa entrare la pagina da sola, e li il browser non
+  // ha nessun permesso da consumare: blocca il saluto E CON LUI TUTTA LA VOCE finche
+  // non si tocca qualcosa. E successo a Sante il 02/09 alle 23:52 - tre righe nel
+  // taccuino, «la voce e bloccata dal browser: serve un tocco» - e da fuori sembra
+  // che ATHENA sia muta. Rimandandolo, il primo tocco vero fa due cose in una:
+  // consuma il permesso e fa partire il saluto.
+  if(!senzaGesto){ dillo(); return; }
+  const alPrimoTocco = () => {
+    document.removeEventListener('pointerdown', alPrimoTocco, true);
+    document.removeEventListener('keydown', alPrimoTocco, true);
+    dillo();
+  };
+  document.addEventListener('pointerdown', alPrimoTocco, true);
+  document.addEventListener('keydown', alPrimoTocco, true);
+  segnala('saluto rimandato al primo tocco: si e entrati senza un gesto');
 }
 
 // ── la fascia delle sessioni ─────────────────────────────────────────────────
@@ -17133,7 +17153,7 @@ try{
   spegniMicrofono();                 // stato iniziale coerente della barra
   const c = cassetto.leggi();
   const dallIndirizzo = lasciapassareDaIndirizzo();
-  if(c && c.anon && c.pass) entra(c.anon, c.pass);
+  if(c && c.anon && c.pass) entra(c.anon, c.pass, true);   // ingresso automatico: nessun gesto, vedi salutaSante
   else if(dallIndirizzo) entraCol(dallIndirizzo);
   else chiediIngresso();
 })();
