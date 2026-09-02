@@ -9176,6 +9176,39 @@ const Sessioni = (function () {
 
     '.se-fila{flex:0 0 auto;display:flex;align-items:center;gap:9px;min-width:0}' +
 
+    /* ── LA RIGA DELL UNITA DI CONTROLLO ─────────────────────────────────
+       Chiesta bassa da Sante il 02/09/2026: quella riga dice sempre la stessa
+       cosa — il controllo gira, 312 giri in 24 ore senza saltarne uno — e non
+       merita l altezza di una riga di lavoro.
+       COSA LA TENEVA ALTA: non il corpo del testo, ma il dettaglio (.dett,
+       flex 0 0 100%) che a fascia aperta va a capo e raddoppia la pastiglia.
+       DOVE VANNO SCRITTE, ed e l errore che mi e costato tre tentativi: QUI,
+       nel corpo generale del foglio. Le prime due versioni erano finite dopo
+       #sessioniFascia:not(.aperta) .se-fila>.se-eti{display:none}, che sta
+       DENTRO la media query del telefono: su schermo largo non esistevano.
+       Prima di aggiungere una regola, guardare dentro quale blocco si sta
+       scrivendo — un CSS giusto nel posto sbagliato non da errore, non fa
+       niente e sembra un difetto della pagina.
+       IL LED: sulla riga del controllo il pallino non festeggia quando va
+       tutto bene (li respirerebbe di continuo per dire una cosa sempre vera):
+       resta spento, e si accende SOLO se il controllo rallenta (ambra) o si
+       ferma (rosso). E la regola di Sante: si vede solo quando c e un problema. */
+    '#sessioniFascia .se-fila-controllo{gap:6px}' +
+    '#sessioniFascia .se-fila-controllo>.se-eti{font-size:9.5px}' +
+    '#sessioniFascia .se-fila-controllo>.se-conta{display:none}' +
+    '#sessioniFascia .se-fila-controllo .se-past{padding:0;gap:5px}' +
+    '#sessioniFascia .se-fila-controllo .sess{font-size:9.5px;line-height:1.35;'
+    + 'padding:2px 8px;min-width:0;max-width:none;border-radius:7px}' +
+    '#sessioniFascia .se-fila-controllo .sess .dett{display:none}' +
+    '#sessioniFascia .se-fila-controllo .sess .tempo{font-size:9px}' +
+    '#sessioniFascia .se-fila-controllo .sess.viva .punto,' +
+    '#sessioniFascia .se-fila-controllo .sess.pronta .punto'
+    + '{background:var(--fioco);box-shadow:none;animation:none}' +
+    '#sessioniFascia .se-fila-controllo .sess.pausa .punto'
+    + '{background:var(--attesa);box-shadow:none;animation:none}' +
+    '#sessioniFascia .se-fila-controllo .sess.spenta .punto'
+    + '{background:#E0736A;box-shadow:0 0 6px rgba(224,115,106,.75);animation:none}' +
+
     /* ── LA MISURA DELLE CELLE ────────────────────────────────────────────
        Due numeri, tenuti qui in cima perche' li usano tre regole diverse e
        cambiarne uno solo sfascerebbe le altre due.
@@ -9486,36 +9519,7 @@ const Sessioni = (function () {
        una sola — quale sia lo dice il suggerimento, e basta aprire per
        rileggere tutte le etichette. Su schermo largo restano dove sono. */
     '#sessioniFascia:not(.aperta) .se-fila>.se-eti{display:none}' +
-    /* ── LA RIGA DELL UNITA DI CONTROLLO STA BASSA ────────────────────────
-       Chiesto da Sante il 02/09/2026 (sessione PORTALE NEXT-076): quella riga
-       dice sempre la stessa cosa — il controllo gira, e in 24 ore non ha
-       saltato un giro su 312 — quindi non merita l altezza di una riga di
-       lavoro. Non si toglie del tutto perche il giorno che si ferma deve
-       vedersi, e questo e il posto dove guarda gia. Qui dentro finiranno
-       anche i led delle routine: e il suo mondo.
-       Si abbassa senza toccare il guscio ne il JS: la classe se-fila-controllo
-       la mette gia il modulo (se-fila se-fila-<gruppo>), bastava usarla. */
-    /* Scritte con #sessioniFascia davanti NON per vezzo: il guscio veste le
-       pastiglie con #sessioniFascia.aperta .sess{padding:5px 10px;min-width:190px},
-       e un ID batte qualunque numero di classi. La prima versione di queste
-       regole (02/09, stessa sessione) era scritta senza ID e su .se-past>*
-       invece che su .sess: era corretta e non mordeva niente. Errore mio,
-       scritto senza prima guardare come sono fatte le pastiglie. */
-    '#sessioniFascia .se-fila-controllo{gap:6px}' +
-    '#sessioniFascia .se-fila-controllo>.se-eti{font-size:9.5px}' +
-    '#sessioniFascia .se-fila-controllo>.se-conta{display:none}' +
-    '#sessioniFascia .se-fila-controllo .se-past{padding:0;gap:5px}' +
-    '#sessioniFascia .se-fila-controllo .sess{font-size:9.5px;line-height:1.35}' +
-    '#sessioniFascia.aperta .se-fila-controllo .sess{padding:2px 8px;'
-    + 'min-width:0;max-width:none;border-radius:7px}' +
-    /* ED ECCO COSA LA TENEVA ALTA DAVVERO, e non erano il corpo ne il padding:
-       a fascia aperta ogni pastiglia apre il suo dettaglio (.dett, flex 0 0 100%)
-       che va a capo e raddoppia l altezza della riga. Sulla riga del controllo
-       quel dettaglio non serve: dice sempre la stessa cosa. Trovato guardando
-       il foglio di stile del guscio invece di ritoccare numeri a caso — due
-       tentativi buttati prima di andare a leggere. */
-    '#sessioniFascia.aperta .se-fila-controllo .sess .dett{display:none}' +
-    '#sessioniFascia .se-fila-controllo .sess .tempo{font-size:9px}' +
+    
     /* e la pastiglia, da chiusa e su telefono, NON va a capo. Il guscio la
        fa `flex-wrap:wrap; max-width:100%`: con 155px di spazio il tempo
        finiva su una seconda linea che la fascia (34px) tagliava a meta'.
