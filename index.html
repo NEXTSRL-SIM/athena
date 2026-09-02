@@ -9495,12 +9495,19 @@ const Sessioni = (function () {
        anche i led delle routine: e il suo mondo.
        Si abbassa senza toccare il guscio ne il JS: la classe se-fila-controllo
        la mette gia il modulo (se-fila se-fila-<gruppo>), bastava usarla. */
-    '.se-fila-controllo{gap:6px}' +
-    '.se-fila-controllo>.se-eti{font-size:9.5px}' +
-    '.se-fila-controllo>.se-conta{display:none}' +
-    '.se-fila-controllo .se-past{padding:0;gap:5px}' +
-    '.se-fila-controllo .se-past>*{font-size:9.5px;line-height:1.45;'
-    + 'padding-top:0;padding-bottom:0}' +
+    /* Scritte con #sessioniFascia davanti NON per vezzo: il guscio veste le
+       pastiglie con #sessioniFascia.aperta .sess{padding:5px 10px;min-width:190px},
+       e un ID batte qualunque numero di classi. La prima versione di queste
+       regole (02/09, stessa sessione) era scritta senza ID e su .se-past>*
+       invece che su .sess: era corretta e non mordeva niente. Errore mio,
+       scritto senza prima guardare come sono fatte le pastiglie. */
+    '#sessioniFascia .se-fila-controllo{gap:6px}' +
+    '#sessioniFascia .se-fila-controllo>.se-eti{font-size:9.5px}' +
+    '#sessioniFascia .se-fila-controllo>.se-conta{display:none}' +
+    '#sessioniFascia .se-fila-controllo .se-past{padding:0;gap:5px}' +
+    '#sessioniFascia .se-fila-controllo .sess{font-size:9.5px;line-height:1.35}' +
+    '#sessioniFascia.aperta .se-fila-controllo .sess{padding:2px 8px;'
+    + 'min-width:0;max-width:none;border-radius:7px}' +
     /* e la pastiglia, da chiusa e su telefono, NON va a capo. Il guscio la
        fa `flex-wrap:wrap; max-width:100%`: con 155px di spazio il tempo
        finiva su una seconda linea che la fascia (34px) tagliava a meta'.
