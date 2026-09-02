@@ -9508,6 +9508,14 @@ const Sessioni = (function () {
     '#sessioniFascia .se-fila-controllo .sess{font-size:9.5px;line-height:1.35}' +
     '#sessioniFascia.aperta .se-fila-controllo .sess{padding:2px 8px;'
     + 'min-width:0;max-width:none;border-radius:7px}' +
+    /* ED ECCO COSA LA TENEVA ALTA DAVVERO, e non erano il corpo ne il padding:
+       a fascia aperta ogni pastiglia apre il suo dettaglio (.dett, flex 0 0 100%)
+       che va a capo e raddoppia l altezza della riga. Sulla riga del controllo
+       quel dettaglio non serve: dice sempre la stessa cosa. Trovato guardando
+       il foglio di stile del guscio invece di ritoccare numeri a caso — due
+       tentativi buttati prima di andare a leggere. */
+    '#sessioniFascia.aperta .se-fila-controllo .sess .dett{display:none}' +
+    '#sessioniFascia .se-fila-controllo .sess .tempo{font-size:9px}' +
     /* e la pastiglia, da chiusa e su telefono, NON va a capo. Il guscio la
        fa `flex-wrap:wrap; max-width:100%`: con 155px di spazio il tempo
        finiva su una seconda linea che la fascia (34px) tagliava a meta'.
