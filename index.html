@@ -9199,7 +9199,13 @@ const Sessioni = (function () {
     '#sessioniFascia .se-fila-controllo .se-past{padding:0;gap:5px}' +
     '#sessioniFascia .se-fila-controllo .sess{font-size:9.5px;line-height:1.35;'
     + 'padding:2px 8px;min-width:0;max-width:none;border-radius:7px}' +
-    '#sessioniFascia .se-fila-controllo .sess .dett{display:none}' +
+    '#sessioniFascia .se-fila-controllo .sess .dett,' +
+    /* con .aperta anche qui: il guscio dice #sessioniFascia.aperta .sess .dett
+       {display:block}, che ha la STESSA specificita di una regola senza .aperta
+       e sta dopo nel foglio — quindi vinceva lui e il dettaglio restava aperto.
+       Misurato in un browser vero il 02/09: pastiglia alta 63px con la mia
+       regola gia in pagina. Non e piu una supposizione. */
+    '#sessioniFascia.aperta .se-fila-controllo .sess .dett{display:none}' +
     '#sessioniFascia .se-fila-controllo .sess .tempo{font-size:9px}' +
     '#sessioniFascia .se-fila-controllo .sess.viva .punto,' +
     '#sessioniFascia .se-fila-controllo .sess.pronta .punto'
