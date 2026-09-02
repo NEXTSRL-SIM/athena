@@ -9486,6 +9486,21 @@ const Sessioni = (function () {
        una sola — quale sia lo dice il suggerimento, e basta aprire per
        rileggere tutte le etichette. Su schermo largo restano dove sono. */
     '#sessioniFascia:not(.aperta) .se-fila>.se-eti{display:none}' +
+    /* ── LA RIGA DELL UNITA DI CONTROLLO STA BASSA ────────────────────────
+       Chiesto da Sante il 02/09/2026 (sessione PORTALE NEXT-076): quella riga
+       dice sempre la stessa cosa — il controllo gira, e in 24 ore non ha
+       saltato un giro su 312 — quindi non merita l altezza di una riga di
+       lavoro. Non si toglie del tutto perche il giorno che si ferma deve
+       vedersi, e questo e il posto dove guarda gia. Qui dentro finiranno
+       anche i led delle routine: e il suo mondo.
+       Si abbassa senza toccare il guscio ne il JS: la classe se-fila-controllo
+       la mette gia il modulo (se-fila se-fila-<gruppo>), bastava usarla. */
+    '.se-fila-controllo{gap:6px}' +
+    '.se-fila-controllo>.se-eti{font-size:9.5px}' +
+    '.se-fila-controllo>.se-conta{display:none}' +
+    '.se-fila-controllo .se-past{padding:0;gap:5px}' +
+    '.se-fila-controllo .se-past>*{font-size:9.5px;line-height:1.45;'
+    + 'padding-top:0;padding-bottom:0}' +
     /* e la pastiglia, da chiusa e su telefono, NON va a capo. Il guscio la
        fa `flex-wrap:wrap; max-width:100%`: con 155px di spazio il tempo
        finiva su una seconda linea che la fascia (34px) tagliava a meta'.
