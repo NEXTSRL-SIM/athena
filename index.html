@@ -16042,7 +16042,16 @@ function aggiungi(m){
     lavoroFinito();
     // il codice e le tabelle vanno in vetrina, dove si leggono davvero
     try{ Vetrina.dai(m.testo, 'ATHENA · '+ora(m.at)); }catch(e){}
-    if(m.testo_voce && !primoGiro) leggi(m, false);
+    // PRIMA c era `if(m.testo_voce && !primoGiro)`: la voce partiva SOLO se chi
+    // rispondeva aveva scritto anche il testo parlato. Ma dieci righe piu sotto
+    // il ripiego c e gia — testo_voce se c e, altrimenti testo — e non veniva
+    // mai raggiunto, perche la condizione lo escludeva a monte. Risultato: la
+    // notte del 03/09 la 0008 rispondeva senza testo parlato (misurato: ZERO
+    // caratteri su tutte le risposte della serata) e ATHENA restava muta pur
+    // avendo risposto. Chi risponde deve continuare a scrivere il testo parlato,
+    // che e fatto per essere ascoltato; ma se se ne dimentica, meglio sentire la
+    // risposta scritta che non sentire niente.
+    if(!primoGiro) leggi(m, false);
   }
 }
 
